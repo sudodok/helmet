@@ -62,6 +62,7 @@ python helmet_detection.py
 ## 📚 เอกสารประกอบโครงงานทั้งหมด
 
 * 💻 **[pc_demo.py](pc_demo.py)**: โค้ดเวอร์ชันจำลองสำหรับนำเสนอบนคอมพิวเตอร์
+* 💬 **[conversation_history.md](conversation_history.md)**: **บันทึกประวัติการพูดคุยและแนวทางตอบข้อซักถามของโครงงาน (Q/A Log)**
 * 📖 **[hardware_retrofit_guide.md](hardware_retrofit_guide.md)**: **คู่มือการดัดแปลงและต่อวงจรกับรถมอเตอร์ไซค์ไฟฟ้าจริง** (วงจรภาคจ่ายไฟ 48V-72V, สเต็ปดาวน์, กล่อง Votol/Kelly, สายคันเร่ง Hall Sensor)
 * 📑 **[research_document.md](research_document.md)**: **เอกสารวิจัยประกอบโครงงาน 7 บท** (สถิติอุบัติเหตุในไทยปี 2567-2568, กฎหมาย พ.ร.บ. จราจรทางบก, ทฤษฎี YOLO/OpenCV/Edge AI, GPS ATGM336H)
 * ⚡ **[arduino/motor_controller.ino](arduino/motor_controller.ino)**: โค้ด Arduino ตัวควบคุมมอเตอร์และอ่านค่า GPS
@@ -75,6 +76,7 @@ helmet-detection-system/
 ├── pc_demo.py                  # 💻 โปรแกรมจำลองและสาธิตสำหรับคอมพิวเตอร์ (PC Demo)
 ├── run_pc_demo.bat             # ⚡ ตัวเปิดโปรแกรมจำลองบน Windows (Double-click ได้เลย)
 ├── helmet_detection.py         # 🛵 โปรแกรมหลักสำหรับติดตั้งบน Raspberry Pi 4 บนรถจริง
+├── conversation_history.md    # 💬 บันทึกประวัติการพูดคุยและตอบข้อซักถามโครงงาน (Q/A)
 ├── hardware_retrofit_guide.md # 📖 คู่มือการดัดแปลงระบบไฟและกล่องคอนโทรลเลอร์รถจริง
 ├── research_document.md       # 📑 เอกสารประกอบโครงงาน 7 บท พร้อมสถิติและงานวิจัย
 ├── requirements.txt            # รายการ Python dependencies
