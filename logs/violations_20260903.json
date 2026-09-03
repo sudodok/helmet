@@ -1,0 +1,10 @@
+[
+  {
+    "timestamp": "2026-09-03T22:11:58.823440",
+    "frame_number": 879,
+    "detections": [
+      {
+        "class": "no_helmet",
+        "confidence": 0.6,
+        "box": [
+          

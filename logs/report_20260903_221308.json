@@ -1,0 +1,18 @@
+{
+  "summary": {
+    "total_frames": 2926,
+    "runtime_seconds": 101.36,
+    "average_fps": 28.87,
+    "total_violations": 14,
+    "mode": "Demo"
+  },
+  "violations": [
+    {
+      "timestamp": "2026-09-03T22:11:58.823440",
+      "frame_number": 879,
+      "detections": [
+        {
+          "class": "no_helmet",
+          "confidence": 0.6,
+          "box": [
+            
