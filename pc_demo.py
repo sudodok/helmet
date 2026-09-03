@@ -40,9 +40,14 @@ class PCHelmetSimulator:
         self.current_speed = 0.0          # ความเร็วปัจจุบัน (km/h)
         self.target_speed = 45.0          # ความเร็วเป้าหมายเมื่อบิดคันเร่ง
         self.speed_limit_violation = 25.0  # ขีดจำกัดความเร็วเมื่อไม่สวมหมวก (km/h)
-        self.is_throttling = True         # สถานะการบิดคันเร่ง
+        self.is_throttling = False        # สถานะการบิดคันเร่ง (เริ่มต้นไม่บิด)
         self.battery_percent = 88         # ระดับแบตเตอรี่รถไฟฟ้า 72V
         self.battery_voltage = 71.4
+
+        # ระบบตัดสตาร์ท (Ignition Start Interlock)
+        # ถ้าไม่สวมหมวกตั้งแต่แรก สตาร์ทรถไม่ติด บิดคันเร่งไม่ไป
+        self.engine_started = False       # สตาร์ทรถติดแล้วหรือไม่
+        self.engine_locked = True         # ล็อคการสตาร์ทเมื่อไม่สวมหมวก
 
         # 3. สถานะฮาร์ดแวร์จำลอง (Virtual Hardware)
         self.virtual_relay_active = False  # สวิตช์รีเลย์จำกัดความเร็ว
@@ -184,8 +189,32 @@ class PCHelmetSimulator:
         return detections, violation
 
     def update_physics(self, is_violation):
-        """จำลองระบบขับเคลื่อนรถมอเตอร์ไซค์ไฟฟ้าจริง"""
-        # อัปเดตสถานะฮาร์ดแวร์
+        """จำลองระบบขับเคลื่อนรถมอเตอร์ไซค์ไฟฟ้าจริง พร้อมระบบตัดสตาร์ท (Start Interlock)"""
+        # 1. กรณีที่รถยังไม่สตาร์ท หรือรถจอดนิ่ง:
+        if not self.engine_started or self.current_speed == 0.0:
+            if is_violation:
+                # ไม่สวมหมวกตั้งแต่แรก -> สตาร์ทรถไม่ติดเด็ดขาด!
+                self.engine_started = False
+                self.engine_locked = True
+                self.current_speed = 0.0
+                self.is_throttling = False
+                self.virtual_relay_active = True   # รีเลย์ตัดวงจรสตาร์ท/คันเร่ง
+                self.virtual_led_green = False
+                self.virtual_led_red = True
+                self.virtual_buzzer_active = True
+                return
+            else:
+                # ตรวจพบการสวมหมวก -> สตาร์ทเครื่องติด พร้อมขับขี่ (READY)
+                if self.engine_locked:
+                    print("[IGNITION] ✅ ตรวจพบหมวกนิรภัย: ปลดล็อคระบบสตาร์ทสำเร็จ (ENGINE READY)")
+                self.engine_started = True
+                self.engine_locked = False
+                self.virtual_relay_active = False
+                self.virtual_led_green = True
+                self.virtual_led_red = False
+                self.virtual_buzzer_active = False
+
+        # 2. กรณีที่รถสตาร์ทติดแล้ว และกำลังขับขี่อยู่:
         if is_violation:
             self.virtual_relay_active = True   # สั่ง Relay ล็อคความเร็ว
             self.virtual_led_green = False
@@ -199,6 +228,11 @@ class PCHelmetSimulator:
                     self.current_speed = self.speed_limit_violation
             elif self.is_throttling and self.current_speed < self.speed_limit_violation:
                 self.current_speed = min(self.speed_limit_violation, self.current_speed + 0.5)
+            
+            # ถ้ารถจอดนิ่งสนิท แล้วยังไม่ใส่หมวก -> ล็อคสตาร์ทใหม่ทันที!
+            if self.current_speed <= 0.2 and not self.is_throttling:
+                self.engine_started = False
+                self.engine_locked = True
         else:
             self.virtual_relay_active = False  # ปลดล็อคความเร็ว
             self.virtual_led_green = True
@@ -215,7 +249,6 @@ class PCHelmetSimulator:
                 self.current_speed = max(0.0, self.current_speed - 0.4)
 
         # จำลองการเคลื่อนที่ของ GPS ตามความเร็วจริง
-        # (ความเร็ว 36 km/h = 10 m/s ~ 0.00009 องศาต่อวินาที)
         speed_deg_factor = (self.current_speed / 3600.0) * 0.009
         self.gps_lat += speed_deg_factor * 0.04
         self.gps_lon += speed_deg_factor * 0.08
@@ -331,10 +364,17 @@ class PCHelmetSimulator:
         cv2.putText(frame, f"LED RED (ALERT): {'ON' if self.virtual_led_red else 'OFF'}", (rh_x + 48, 165),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.44, (220, 220, 220), 1)
 
-        # รีเลย์ตัดความเร็ว
-        relay_text = "ENGAGED (25 KM/H)" if self.virtual_relay_active else "NORMAL (UNLOCKED)"
-        relay_col = (0, 0, 255) if self.virtual_relay_active else (0, 255, 0)
-        cv2.putText(frame, f"SPEED RELAY: {relay_text}", (rh_x + 18, 198),
+        # รีเลย์ตัดความเร็วและระบบตัดสตาร์ท
+        if self.engine_locked:
+            relay_text = "LOCKED (START OFF)"
+            relay_col = (0, 0, 255)
+        elif self.virtual_relay_active:
+            relay_text = "LIMIT 25 KM/H"
+            relay_col = (0, 150, 255)
+        else:
+            relay_text = "NORMAL (UNLOCKED)"
+            relay_col = (0, 255, 0)
+        cv2.putText(frame, f"INTERLOCK: {relay_text}", (rh_x + 18, 198),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.44, relay_col, 2)
 
         # สัญญาณ Buzzer
@@ -359,29 +399,52 @@ class PCHelmetSimulator:
         cv2.rectangle(frame, (20, h - dash_h - 60), (20 + dash_w, h - 60), (60, 70, 90), 1)
 
         # ตัวเลขความเร็วใหญ่
-        speed_color = (0, 255, 0) if not self.virtual_relay_active else (0, 150, 255)
-        if self.current_speed > 60:
+        if self.engine_locked:
+            cv2.putText(frame, "LOCK", (38, h - 130),
+                        cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 255), 4)
+            cv2.putText(frame, "(0 km/h)", (195, h - 135),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (160, 160, 160), 2)
             speed_color = (0, 0, 255)
+        else:
+            speed_color = (0, 255, 0) if not self.virtual_relay_active else (0, 150, 255)
+            if self.current_speed > 60:
+                speed_color = (0, 0, 255)
 
-        cv2.putText(frame, f"{self.current_speed:.0f}", (55, h - 130),
-                    cv2.FONT_HERSHEY_SIMPLEX, 2.5, speed_color, 4)
-        cv2.putText(frame, "km/h", (165, h - 135),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (200, 200, 200), 2)
+            cv2.putText(frame, f"{self.current_speed:.0f}", (55, h - 130),
+                        cv2.FONT_HERSHEY_SIMPLEX, 2.5, speed_color, 4)
+            cv2.putText(frame, "km/h", (165, h - 135),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, (200, 200, 200), 2)
 
         # แถบวัดระดับความเร็ว (Speed Bar)
         bar_x, bar_y, bar_w, bar_h = 40, h - 105, 270, 14
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (50, 50, 60), -1)
-        fill_w = int((self.current_speed / 80.0) * bar_w)
+        fill_w = int((self.current_speed / 80.0) * bar_w) if not self.engine_locked else 0
         fill_w = max(0, min(bar_w, fill_w))
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), speed_color, -1)
 
-        # ข้อความสถานะคันเร่ง
-        throttle_status = "THROTTLE: APPLIED" if self.is_throttling else "THROTTLE: RELEASED"
+        # ข้อความสถานะคันเร่ง / สตาร์ท
+        if self.engine_locked:
+            throttle_status = "ENGINE: LOCKED (NO HELMET)"
+            t_col = (0, 0, 255)
+        else:
+            throttle_status = "THROTTLE: APPLIED" if self.is_throttling else "THROTTLE: RELEASED"
+            t_col = (0, 255, 0) if self.is_throttling else (180, 200, 220)
         cv2.putText(frame, throttle_status, (40, h - 75),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.44, (180, 200, 220), 1)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.44, t_col, 1)
 
-        # 5. ป้ายเตือนกระพริบกลางจอเมื่อตรวจพบการละเมิด
-        if violation:
+        # 5. ป้ายเตือนกระพริบกลางจอ
+        if self.engine_locked:
+            # แจ้งเตือนตัดสตาร์ทเครื่องยนต์ตัวโตๆ
+            alert_box_w, alert_box_h = 630, 75
+            ab_x = (w - alert_box_w) // 2
+            ab_y = h - 150
+            cv2.rectangle(frame, (ab_x, ab_y), (ab_x + alert_box_w, ab_y + alert_box_h), (0, 0, 190), -1)
+            cv2.rectangle(frame, (ab_x - 3, ab_y - 3), (ab_x + alert_box_w + 3, ab_y + alert_box_h + 3), (0, 255, 255), 2)
+            cv2.putText(frame, "⛔ ENGINE START LOCKED: NO HELMET !", (ab_x + 20, ab_y + 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.72, (255, 255, 255), 2)
+            cv2.putText(frame, "MOTORCYCLE CANNOT START. WEAR HELMET FIRST (Press H)", (ab_x + 22, ab_y + 58),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 255), 2)
+        elif violation:
             if int(time.time() * 3) % 2 == 0:
                 alert_box_w, alert_box_h = 580, 65
                 ab_x = (w - alert_box_w) // 2
@@ -460,9 +523,13 @@ class PCHelmetSimulator:
                     status_str = "สวมหมวกนิรภัย (HELMET ON)" if self.forced_helmet_state else "ไม่สวมหมวกนิรภัย (NO HELMET)"
                     print(f"[DEMO CONTROL] บังคับสถานะ: {status_str}")
                 elif key == ord('t') or key == ord('T') or key == 82: # T หรือ Up Arrow
-                    self.is_throttling = True
-                    self.target_speed = min(75.0, self.target_speed + 5.0)
-                    print(f"[THROTTLE] เร่งความเร็วเป้าหมาย: {self.target_speed:.0f} km/h")
+                    if self.engine_locked:
+                        print("[LOCKED] ⛔ สตาร์ทรถไม่ติด! มอเตอร์ไม่ทำงาน กรุณาสวมหมวกนิรภัยก่อน (กด 'H' เพื่อจำลองสวมหมวก)")
+                        self._play_buzzer_sound()
+                    else:
+                        self.is_throttling = True
+                        self.target_speed = min(75.0, self.target_speed + 5.0)
+                        print(f"[THROTTLE] เร่งความเร็วเป้าหมาย: {self.target_speed:.0f} km/h")
                 elif key == ord('b') or key == ord('B') or key == 84: # B หรือ Down Arrow
                     self.target_speed = max(0.0, self.target_speed - 10.0)
                     if self.target_speed == 0:
