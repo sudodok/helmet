@@ -82,8 +82,14 @@ class HelmetDetectionSystem:
             'electric_motorcycle': {
                 'speed_limit_no_helmet': 25,  # km/h
                 'auto_limit_speed': True,
-                'serial_port': '/dev/ttyUSB0',
-                'baud_rate': 9600
+                'serial_port': '/dev/ttyAMA0' if RPI_AVAILABLE else '/dev/ttyUSB0',
+                'baud_rate': 9600,
+                'gpio_pins': {
+                    'relay': 17,     # คุม Relay จำกัดความเร็ว / ตัดคันเร่ง
+                    'buzzer': 27,    # ขับสัญญาณเสียงเตือน Buzzer
+                    'led_green': 22, # ไฟเขียว (สวมหมวก/ปลอดภัย)
+                    'led_red': 23    # ไฟแดง (ไม่สวมหมวก/อันตราย)
+                }
             }
         }
     
@@ -476,8 +482,9 @@ class HelmetDetectionSystem:
         # เชื่อมต่อกับตัวควบคุมมอเตอร์และโมดูล GPS
         motor_cfg = self.config.get('electric_motorcycle', {})
         self.controller = ElectricMotorcycleController(
-            port=motor_cfg.get('serial_port', '/dev/ttyUSB0'),
-            baud_rate=motor_cfg.get('baud_rate', 9600)
+            port=motor_cfg.get('serial_port'),
+            baud_rate=motor_cfg.get('baud_rate', 9600),
+            gpio_config=motor_cfg.get('gpio_pins')
         )
         self.controller.connect()
         
@@ -594,75 +601,134 @@ class HelmetDetectionSystem:
         print("=" * 60)
 
 
+# ตรวจสอบการใช้งานบนบอร์ด Raspberry Pi 4
+try:
+    import RPi.GPIO as GPIO
+    RPI_AVAILABLE = True
+except (ImportError, RuntimeError):
+    RPI_AVAILABLE = False
+
+
 class ElectricMotorcycleController:
-    """ตัวควบคุมรถมอเตอร์ไซค์ไฟฟ้า"""
+    """ตัวควบคุมรถมอเตอร์ไซค์ไฟฟ้าจริง (รองรับทั้ง Raspberry Pi 4 GPIO และ Serial เชื่อมต่อ Arduino)"""
     
-    def __init__(self, port='/dev/ttyUSB0', baud_rate=9600):
-        self.port = port
+    def __init__(self, port=None, baud_rate=9600, gpio_config=None):
+        self.port = port or ('/dev/ttyAMA0' if RPI_AVAILABLE else '/dev/ttyUSB0')
         self.baud_rate = baud_rate
         self.current_speed_limit = None
         self.is_connected = False
         self.helmet_status = 'unknown'
+        self.serial = None
+        
+        # กำหนดขา GPIO บน Raspberry Pi 4
+        self.gpio_cfg = gpio_config or {
+            'relay': 17,     # สั่ง Relay ดึงสาย Speed Limit / Throttle
+            'buzzer': 27,    # สัญญาณเสียงเตือน Buzzer
+            'led_green': 22, # ไฟเขียว: สวมหมวก (ปลอดภัย)
+            'led_red': 23    # ไฟแดง: ไม่สวมหมวก (อันตราย)
+        }
         
     def connect(self):
-        """เชื่อมต่อกับตัวควบคุมมอเตอร์"""
+        """เริ่มต้นการเชื่อมต่อฮาร์ดแวร์บน Raspberry Pi 4 หรือ Serial"""
+        # 1. ตั้งค่า GPIO บน Raspberry Pi 4
+        if RPI_AVAILABLE:
+            try:
+                GPIO.setmode(GPIO.BCM)
+                GPIO.setwarnings(False)
+                for pin in self.gpio_cfg.values():
+                    GPIO.setup(pin, GPIO.OUT)
+                
+                # ค่าเริ่มต้น: สถานะปลอดภัย (Relay OFF, ไฟเขียว ON)
+                GPIO.output(self.gpio_cfg['relay'], GPIO.LOW)
+                GPIO.output(self.gpio_cfg['buzzer'], GPIO.LOW)
+                GPIO.output(self.gpio_cfg['led_green'], GPIO.HIGH)
+                GPIO.output(self.gpio_cfg['led_red'], GPIO.LOW)
+                self.is_connected = True
+                print(f"[RPI-4] เริ่มต้นระบบ GPIO ควบคุมรถมอเตอร์ไซค์ไฟฟ้าสำเร็จ (Relay PIN {self.gpio_cfg['relay']})")
+            except Exception as e:
+                print(f"[RPI-4] ตั้งค่า GPIO ไม่สำเร็จ: {e}")
+        
+        # 2. เชื่อมต่อ Serial สำหรับอ่านพิกัด GPS ATGM336H หรือสื่อสารกล่องคอนโทรลเลอร์
         try:
             import serial
-            self.serial = serial.Serial(
-                self.port, self.baud_rate, timeout=1
-            )
+            self.serial = serial.Serial(self.port, self.baud_rate, timeout=1)
             self.is_connected = True
-            print(f"[MOTOR] เชื่อมต่อที่ {self.port}")
+            print(f"[HARDWARE] เชื่อมต่อพอร์ต {self.port} สำเร็จ")
         except Exception as e:
-            print(f"[MOTOR] ไม่สามารถเชื่อมต่อ: {e}")
-            self.is_connected = False
+            if not RPI_AVAILABLE:
+                print(f"[HARDWARE] จำลองการทำงาน (ไม่พบพอร์ต Serial: {e})")
+            else:
+                print(f"[HARDWARE] GPS Serial บน {self.port}: {e}")
     
     def set_speed_limit(self, max_speed):
-        """ตั้งค่าจำกัดความเร็ว"""
+        """ตั้งค่าจำกัดความเร็วบนรถมอเตอร์ไซค์ไฟฟ้าจริง"""
         self.current_speed_limit = max_speed
-        command = f"SPEED_LIMIT:{max_speed}\n"
         
-        if self.is_connected:
+        # ควบคุมฮาร์ดแวร์จริงบน Raspberry Pi 4
+        if RPI_AVAILABLE:
             try:
-                self.serial.write(command.encode())
-                print(f"[MOTOR] จำกัดความเร็ว: {max_speed} km/h")
+                # สั่ง Relay ทำงานเพื่อดึงสาย Speed Limit ลง GND หรือตัดแรงดันคันเร่ง
+                GPIO.output(self.gpio_cfg['relay'], GPIO.HIGH)
+                GPIO.output(self.gpio_cfg['led_green'], GPIO.LOW)
+                GPIO.output(self.gpio_cfg['led_red'], GPIO.HIGH)
+                GPIO.output(self.gpio_cfg['buzzer'], GPIO.HIGH)
+                print(f"[RPI-4 HW] สั่ง Relay (PIN {self.gpio_cfg['relay']}) ดึงสาย Speed Limit: จำกัดความเร็ว {max_speed} km/h")
             except Exception as e:
-                print(f"[MOTOR] Error: {e}")
-        else:
-            print(f"[SIM] จำกัดความเร็ว: {max_speed} km/h")
+                print(f"[RPI-4 HW Error]: {e}")
+        
+        # ส่งคำสั่งผ่าน Serial ไปยัง Arduino / กล่องคอนโทรลเลอร์ (ถ้ามี)
+        if self.serial and self.serial.is_open:
+            try:
+                command = f"SPEED_LIMIT:{max_speed}\n"
+                self.serial.write(command.encode())
+                print(f"[MOTOR SERIAL] ส่งคำสั่งจำกัดความเร็ว: {max_speed} km/h")
+            except Exception as e:
+                print(f"[MOTOR SERIAL Error]: {e}")
+        elif not RPI_AVAILABLE:
+            print(f"[SIM] จำลองจำกัดความเร็วรถ: {max_speed} km/h")
     
     def remove_speed_limit(self):
-        """ยกเลิกการจำกัดความเร็ว"""
+        """ยกเลิกการจำกัดความเร็ว (อนุญาตให้ขับขี่ด้วยความเร็วปกติ)"""
         self.current_speed_limit = None
-        command = "SPEED_LIMIT:NONE\n"
         
-        if self.is_connected:
+        # ปลด Relay บน Raspberry Pi 4
+        if RPI_AVAILABLE:
             try:
-                self.serial.write(command.encode())
-                print("[MOTOR] ยกเลิกจำกัดความเร็ว")
+                GPIO.output(self.gpio_cfg['relay'], GPIO.LOW)
+                GPIO.output(self.gpio_cfg['led_green'], GPIO.HIGH)
+                GPIO.output(self.gpio_cfg['led_red'], GPIO.LOW)
+                GPIO.output(self.gpio_cfg['buzzer'], GPIO.LOW)
+                print("[RPI-4 HW] ปลด Relay: สวมหมวกนิรภัยแล้ว ขับขี่ความเร็วปกติได้")
             except Exception as e:
-                print(f"[MOTOR] Error: {e}")
-        else:
-            print("[SIM] ยกเลิกจำกัดความเร็ว")
+                print(f"[RPI-4 HW Error]: {e}")
+        
+        if self.serial and self.serial.is_open:
+            try:
+                command = "SPEED_LIMIT:NONE\n"
+                self.serial.write(command.encode())
+                print("[MOTOR SERIAL] ยกเลิกจำกัดความเร็ว (Normal Speed)")
+            except Exception as e:
+                print(f"[MOTOR SERIAL Error]: {e}")
+        elif not RPI_AVAILABLE:
+            print("[SIM] ยกเลิกจำกัดความเร็ว (Normal Speed)")
     
     def update_helmet_status(self, status):
         """อัปเดตสถานะหมวกกันน็อค"""
         self.helmet_status = status
-        
         if status == 'no_helmet':
-            self.set_speed_limit(25)  # จำกัดที่ 25 km/h
+            self.set_speed_limit(25)  # จำกัดความเร็ว 25 km/h
         elif status == 'helmet':
             self.remove_speed_limit()
     
     def read_gps_data(self):
-        """อ่านข้อมูลพิกัดจาก GPS ATGM336H / NEO-M8N ผ่าน Serial"""
-        if not self.is_connected or not self.serial:
+        """อ่านและแปลงข้อมูลพิกัดจาก GPS ATGM336H / NEO-M8N"""
+        if not self.serial or not self.serial.is_open:
             return None
         try:
             if self.serial.in_waiting > 0:
                 line = self.serial.readline().decode('utf-8', errors='ignore').strip()
+                # 1. ตรวจสอบฟอร์แมตจาก Arduino
                 if line.startswith("GPS:"):
-                    # รูปแบบ: GPS:lat,lon,speed,sats,fix
                     parts = line[4:].split(',')
                     if len(parts) >= 5:
                         return {
@@ -672,19 +738,53 @@ class ElectricMotorcycleController:
                             'satellites': int(parts[3]),
                             'fix': parts[4] == '1'
                         }
+                # 2. ตรวจสอบประโยคดิบ NMEA $GNRMC / $GPRMC จากโมดูล GPS ต่อตรง Pi 4
+                elif line.startswith("$GNRMC") or line.startswith("$GPRMC"):
+                    parts = line.split(',')
+                    if len(parts) >= 8 and parts[2] == 'A':
+                        raw_lat = float(parts[3])
+                        lat_deg = int(raw_lat / 100)
+                        lat_min = raw_lat - (lat_deg * 100)
+                        lat = lat_deg + (lat_min / 60.0)
+                        if parts[4] == 'S': lat = -lat
+                        
+                        raw_lon = float(parts[5])
+                        lon_deg = int(raw_lon / 100)
+                        lon_min = raw_lon - (lon_deg * 100)
+                        lon = lon_deg + (lon_min / 60.0)
+                        if parts[6] == 'W': lon = -lon
+                        
+                        speed_knots = float(parts[7]) if parts[7] else 0.0
+                        return {
+                            'lat': lat,
+                            'lon': lon,
+                            'speed': speed_knots * 1.852,
+                            'satellites': 8,
+                            'fix': True
+                        }
         except Exception:
             pass
         return None
 
     def disconnect(self):
-        """ตัดการเชื่อมต่อ"""
-        if self.is_connected:
+        """ตัดการเชื่อมต่อและคืนค่าพิน GPIO ปลอดภัย"""
+        if RPI_AVAILABLE:
+            try:
+                # ปิดรีเลย์ก่อนปิดโปรแกรมเพื่อความปลอดภัย
+                GPIO.output(self.gpio_cfg['relay'], GPIO.LOW)
+                GPIO.output(self.gpio_cfg['buzzer'], GPIO.LOW)
+                GPIO.cleanup()
+                print("[RPI-4] คืนค่าพิน GPIO สำเร็จ")
+            except Exception:
+                pass
+        
+        if self.serial and self.serial.is_open:
             try:
                 self.serial.close()
-                print("[MOTOR] ตัดการเชื่อมต่อ")
-            except:
+                print("[HARDWARE] ปิดการเชื่อมต่อ Serial")
+            except Exception:
                 pass
-            self.is_connected = False
+        self.is_connected = False
 
 
 # =====================================================

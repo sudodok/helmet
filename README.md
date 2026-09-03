@@ -1,81 +1,84 @@
-# ระบบตรวจจับหมวกกันน็อคสำหรับรถมอเตอร์ไซค์ไฟฟ้า
-# Helmet Detection System for Electric Motorcycles
+# ระบบตรวจจับหมวกกันน็อคสำหรับรถมอเตอร์ไซค์ไฟฟ้า (ติดตั้งบนรถจริง)
+# Helmet Detection System for Electric Motorcycles (Raspberry Pi 4 & Real EV Retrofit)
 
-ระบบตรวจจับหมวกกันน็อคแบบ Real-time สำหรับรถมอเตอร์ไซค์ไฟฟ้า ใช้ OpenCV + YOLO พร้อมระบบพิกัดดาวเทียม GPS ATGM336H (NEO-M8N)
+ระบบตรวจจับหมวกกันน็อคแบบ Real-time ติดตั้งบน **รถมอเตอร์ไซค์ไฟฟ้าจริง** ขับเคลื่อนด้วยบอร์ด **Raspberry Pi 4**, กล้องมุมกว้าง Wide-Angle, โมดูลระบุพิกัดดาวเทียม **GPS ATGM336H (NEO-M8N)** และวงจรควบคุมกล่องคอนโทรลเลอร์มอเตอร์ BLDC
 
-## ✨ คุณสมบัติ (Features)
+---
 
-1. **การตรวจจับหมวกกันน็อค (Helmet Detection)** - ใช้ YOLO หรือ Haar Cascade (demo mode)
-2. **Dashboard HUD แสดงสถานะ** - แสดง FPS, จำนวนเฟรม, สถานะหมวก, ความเร็ว, และพิกัด GPS
-3. **ระบบพิกัดดาวเทียม GPS (ATGM336H / NEO-M8N)** - รับสัญญาณผ่านสายอากาศ Active Antenna ระบุพิกัด Latitude, Longitude, ความเร็ว และจำนวนดาวเทียมแบบ Real-time
-4. **ประทับลายน้ำพิกัด GPS บนหลักฐาน (Geo-Tagging)** - ประทับพิกัดและวันเวลาลงบนภาพถ่ายการละเมิดโดยอัตโนมัติ
-5. **ระบบแจ้งเตือน (Alert System)** - แจ้งเตือนกระพริบบนหน้าจอและส่งสัญญาณเสียง Buzzer
-6. **การควบคุมความเร็ว (Speed Control)** - ส่งคำสั่งผ่าน Serial ไปยัง Arduino เพื่อจำกัดความเร็วรถอัตโนมัติเหลือ 25 km/h เมื่อไม่สวมหมวก
-7. **บันทึก Log และรายงาน** - บันทึกข้อมูลการละเมิดพร้อมพิกัด GPS ในรูปแบบ JSON
-8. **Arduino/ESP32 Controller** - ควบคุมมอเตอร์ PWM, สัญญาณเตือน และอ่านค่าจากโมดูล GPS
+## ✨ คุณสมบัติเด่น (Key Features)
 
-## 📦 การติดตั้ง (Installation)
+1. **รองรับบอร์ดประมวลผล Raspberry Pi 4 Model B**: ทำงานแบบ Edge AI บนตัวรถมอเตอร์ไซค์ไฟฟ้าจริง ไม่ต้องพึ่งพาสัญญาณอินเทอร์เน็ตในการตรวจจับ
+2. **การตรวจจับหมวกกันน็อค Real-time**: ตรวจจับและจำแนก Class `helmet` และ `no_helmet` บนภาพสตรีมจากกล้องมุมกว้าง
+3. **ระบบตัดต่อ/จำกัดความเร็วรถจริง (Speed Limiting Interlock)**: 
+   - สั่งงาน Relay / Optocoupler ผ่าน GPIO 17 ไปยังสาย **Speed Limit Wire** ของกล่องมอเตอร์ (เช่น Votol, Kelly, กล่องติดรถ)
+   - หากไม่สวมหมวก รถจะถูกล็อคความเร็วอัตโนมัติไม่เกิน **25 km/h**
+4. **ระบบระบุพิกัดดาวเทียม GPS ATGM336H (NEO-M8N)**:
+   - เชื่อมต่อสายอากาศ Active Ceramic Antenna พร้อม LNA
+   - บันทึกพิกัด Latitude, Longitude, ความเร็ว และจำนวนดาวเทียม
+5. **ประทับลายน้ำหลักฐาน (Geo-Tagging Evidence)**: บันทึกภาพถ่ายการละเมิดพร้อมป้ายแถบลายน้ำระบุพิกัด GPS และวันเวลาลงบนภาพโดยอัตโนมัติ
+6. **ระบบแจ้งเตือนรอบด้าน**: เสียง Active Buzzer และไฟ LED แจ้งเตือนบนแฮนด์รถ
+7. **เอกสารคู่มือดัดแปลงรถจริงฉบับสมบูรณ์**: อธิบายวิธีต่อสายไฟกับแบตเตอรี่แรงดันสูง (48V-72V), การแปลงไฟ DC-DC, และการต่อสายคันเร่ง
+
+---
+
+## 📦 การติดตั้งบน Raspberry Pi 4 (Installation)
 
 ```bash
-# ติดตั้ง dependencies
+# 1. ติดตั้ง System Dependencies บน Raspberry Pi OS
+sudo apt-get update
+sudo apt-get install -y python3-opencv python3-pip libatlas-base-dev
+
+# 2. ติดตั้ง Python Libraries
 pip install -r requirements.txt
 ```
 
-## 🚀 วิธีใช้งาน (Usage)
+---
+
+## 🚀 วิธีเปิดใช้งาน (Usage)
 
 ```bash
-# รันระบบ
+# รันโปรแกรมหลัก
 python helmet_detection.py
 ```
 
-### โหมดการทำงาน
+*โปรแกรมจะตรวจจับอัตโนมัติ: หากรันบน Raspberry Pi 4 จะเปิดระบบควบคุม GPIO และ UART ให้ทันที หรือหากรันบน PC ทั่วไปจะเปิดโหมดจำลอง (Simulation Mode) เพื่อทดสอบได้โดยไม่ต้องต่อฮาร์ดแวร์จริง*
 
-- **YOLO Mode**: ถ้ามีไฟล์ `yolov4-helmet.weights`, `yolov4-helmet.cfg`, `helmet.names` จะใช้ YOLO สำหรับการตรวจจับที่แม่นยำ
-- **Demo Mode**: ถ้าไม่มีไฟล์ model จะใช้ Haar Cascade + Background Subtraction สำหรับการทดสอบได้ทันที
+---
 
-### การใช้งานกับ YOLO model จริง
+## 🔌 ตารางการต่อสาย GPIO บน Raspberry Pi 4
 
-- ต้องฝึก custom YOLO model ด้วยชุดข้อมูลหมวกกันน็อค
-- ใช้ dataset เช่น "Helmet Detection Dataset" จาก Kaggle
-- หรือใช้ YOLOv8 กับ Ultralytics สำหรับประสิทธิภาพที่ดีกว่า
+| ขาทางกายภาพ (Physical Pin) | ขา GPIO | อุปกรณ์ที่ต่อ | หน้าที่การทำงาน |
+|:---:|:---:|---|---|
+| **Pin 11** | **GPIO 17** | **Relay Module (IN)** | สั่งตัดต่อสาย Speed Limit ของกล่องมอเตอร์ |
+| **Pin 13** | **GPIO 27** | **Active Buzzer (+)** | สัญญาณเสียงเตือนเมื่อไม่สวมหมวก |
+| **Pin 15** | **GPIO 22** | **LED เขียว (+)** | ไฟสถานะสวมหมวกนิรภัย (ปลอดภัย) |
+| **Pin 16** | **GPIO 23** | **LED แดง (+)** | ไฟสถานะไม่สวมหมวกนิรภัย (อันตราย) |
+| **Pin 8** | **GPIO 14 (TXD)** | **GPS ATGM336H (RXD)** | สื่อสารตั้งค่า GPS |
+| **Pin 10** | **GPIO 15 (RXD)** | **GPS ATGM336H (TXD)** | รับข้อมูลพิกัด NMEA จาก GPS |
+| **Pin 2 / 4** | **5V Power** | **VCC Relay, GPS, Buzzer** | ไฟเลี้ยงอุปกรณ์ 5V |
+| **Pin 6 / 9** | **GND** | **GND รวม** | กราวด์ร่วมระบบ |
 
-## ⌨️ คีย์ลัด (Keyboard Shortcuts)
+---
 
-| คีย์ | การทำงาน |
-|------|----------|
-| `q`  | ออกจากโปรแกรม |
-| `s`  | บันทึกภาพหน้าจอ |
-| `r`  | รีเซ็ตสถิติ |
+## 📚 เอกสารประกอบโครงงานและคู่มือฮาร์ดแวร์
 
-## 🔌 วงจรและการต่อสาย Arduino / ESP32
+* 📖 [hardware_retrofit_guide.md](hardware_retrofit_guide.md): **คู่มือการดัดแปลงและต่อวงจรกับรถมอเตอร์ไซค์ไฟฟ้าจริง** (วงจรภาคจ่ายไฟ 48V-72V, สเต็ปดาวน์, กล่อง Votol/Kelly, สายคันเร่ง Hall Sensor)
+* 📑 [research_document.md](research_document.md): **เอกสารวิจัยประกอบโครงงาน 7 บท** (สถิติอุบัติเหตุในไทยปี 2567-2568, กฎหมาย พ.ร.บ. จราจรทางบก, ทฤษฎี YOLO/OpenCV/Edge AI, GPS ATGM336H)
+* ⚡ [arduino/motor_controller.ino](arduino/motor_controller.ino): โค้ดสำรองสำหรับกรณีที่ต้องการใช้ Arduino เป็นโมดูลควบคุมมอเตอร์แยก
 
-โค้ด Arduino สำหรับควบคุมมอเตอร์และอ่าน GPS อยู่ในโฟลเดอร์ `arduino/motor_controller.ino`
-
-### ตารางการต่อขา (Pin Configuration)
-
-| ขา Arduino | อุปกรณ์ | ขาโมดูล | รายละเอียด |
-|------------|---------|---------|------------|
-| Pin 9 | Motor Driver | PWM Pin | ควบคุมความเร็วมอเตอร์ |
-| Pin 8 | Buzzer | VCC/Signal | สัญญาณเสียงเตือน |
-| Pin 7 | LED เขียว | Anode (+) | ไฟเขียว = สวมหมวกนิรภัย |
-| Pin 6 | LED แดง | Anode (+) | ไฟแดง = ไม่สวมหมวกนิรภัย |
-| Pin 4 | โมดูล GPS ATGM336H | TXD | SoftwareSerial RX (รับพิกัดจาก GPS) |
-| Pin 3 | โมดูล GPS ATGM336H | RXD | SoftwareSerial TX |
-| 5V / 3.3V | โมดูล GPS ATGM336H | VCC | แรงดันไฟเลี้ยง |
-| GND | ทุกอุปกรณ์ | GND | กราวด์ร่วม |
-
-*หมายเหตุ: ต่อสายอากาศ Active Antenna เข้ากับขั้วต่อ IPX บนโมดูล ATGM336H และวางสายอากาศในตำแหน่งที่มองเห็นท้องฟ้าได้ชัดเจน*
+---
 
 ## 📁 โครงสร้างโปรเจค
 
 ```
 helmet-detection-system/
-├── helmet_detection.py      # โค้ดหลักระบบตรวจจับ + HUD + จัดการพิกัด GPS
-├── requirements.txt         # รายการ dependencies
-├── README.md               # เอกสารคู่มือการใช้งาน
-├── research_document.md    # เอกสารประกอบโปรเจค 7 บท (สถิติ, กฎหมาย, ทฤษฎี, GPS)
+├── helmet_detection.py         # โปรแกรมหลักตรวจจับ AI + คุม GPIO บน Raspberry Pi 4
+├── hardware_retrofit_guide.md # คู่มือดัดแปลงระบบไฟและกล่องคอนโทรลเลอร์รถจริง
+├── research_document.md       # เอกสารประกอบโครงงาน 7 บท พร้อมสถิติและงานวิจัย
+├── requirements.txt            # รายการ Python dependencies
+├── README.md                  # เอกสารแนะนำและคู่มือการใช้งาน
 ├── arduino/
-│   └── motor_controller.ino # โค้ด Arduino คุมมอเตอร์ + อ่าน GPS ATGM336H
-├── logs/                   # บันทึก log การละเมิดพร้อมพิกัด (สร้างอัตโนมัติ)
-└── captures/               # ภาพหลักฐานการละเมิดพร้อมลายน้ำพิกัด (สร้างอัตโนมัติ)
+│   └── motor_controller.ino    # โค้ดไมโครคอนโทรลเลอร์ (Arduino Option)
+├── logs/                      # บันทึกประวัติการละเมิดพร้อมพิกัด GPS (JSON)
+└── captures/                  # ภาพถ่ายหลักฐานพร้อมลายน้ำพิกัด (JPG)
 ```
