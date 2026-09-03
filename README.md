@@ -1,16 +1,18 @@
 # ระบบตรวจจับหมวกกันน็อคสำหรับรถมอเตอร์ไซค์ไฟฟ้า
 # Helmet Detection System for Electric Motorcycles
 
-ระบบตรวจจับหมวกกันน็อคแบบ Real-time สำหรับรถมอเตอร์ไซค์ไฟฟ้า ใช้ OpenCV + YOLO
+ระบบตรวจจับหมวกกันน็อคแบบ Real-time สำหรับรถมอเตอร์ไซค์ไฟฟ้า ใช้ OpenCV + YOLO พร้อมระบบพิกัดดาวเทียม GPS ATGM336H (NEO-M8N)
 
 ## ✨ คุณสมบัติ (Features)
 
-1. **การตรวจจับหมวกกันน็อค** - ใช้ YOLO หรือ Haar Cascade (demo mode)
-2. **Dashboard แสดงสถานะ** - แสดง FPS, จำนวนเฟรม, การละเมิด
-3. **ระบบแจ้งเตือน** - เตือนเมื่อไม่สวมหมวก
-4. **การควบคุมความเร็ว** - จำกัดความเร็วผ่าน Serial
-5. **บันทึก Log** - บันทึกภาพและข้อมูลการละเมิด
-6. **Arduino Code** - สำหรับควบคุมมอเตอร์ไฟฟ้า
+1. **การตรวจจับหมวกกันน็อค (Helmet Detection)** - ใช้ YOLO หรือ Haar Cascade (demo mode)
+2. **Dashboard HUD แสดงสถานะ** - แสดง FPS, จำนวนเฟรม, สถานะหมวก, ความเร็ว, และพิกัด GPS
+3. **ระบบพิกัดดาวเทียม GPS (ATGM336H / NEO-M8N)** - รับสัญญาณผ่านสายอากาศ Active Antenna ระบุพิกัด Latitude, Longitude, ความเร็ว และจำนวนดาวเทียมแบบ Real-time
+4. **ประทับลายน้ำพิกัด GPS บนหลักฐาน (Geo-Tagging)** - ประทับพิกัดและวันเวลาลงบนภาพถ่ายการละเมิดโดยอัตโนมัติ
+5. **ระบบแจ้งเตือน (Alert System)** - แจ้งเตือนกระพริบบนหน้าจอและส่งสัญญาณเสียง Buzzer
+6. **การควบคุมความเร็ว (Speed Control)** - ส่งคำสั่งผ่าน Serial ไปยัง Arduino เพื่อจำกัดความเร็วรถอัตโนมัติเหลือ 25 km/h เมื่อไม่สวมหมวก
+7. **บันทึก Log และรายงาน** - บันทึกข้อมูลการละเมิดพร้อมพิกัด GPS ในรูปแบบ JSON
+8. **Arduino/ESP32 Controller** - ควบคุมมอเตอร์ PWM, สัญญาณเตือน และอ่านค่าจากโมดูล GPS
 
 ## 📦 การติดตั้ง (Installation)
 
@@ -29,7 +31,7 @@ python helmet_detection.py
 ### โหมดการทำงาน
 
 - **YOLO Mode**: ถ้ามีไฟล์ `yolov4-helmet.weights`, `yolov4-helmet.cfg`, `helmet.names` จะใช้ YOLO สำหรับการตรวจจับที่แม่นยำ
-- **Demo Mode**: ถ้าไม่มีไฟล์ model จะใช้ Haar Cascade + Background Subtraction สำหรับการทดสอบ
+- **Demo Mode**: ถ้าไม่มีไฟล์ model จะใช้ Haar Cascade + Background Subtraction สำหรับการทดสอบได้ทันที
 
 ### การใช้งานกับ YOLO model จริง
 
@@ -45,28 +47,35 @@ python helmet_detection.py
 | `s`  | บันทึกภาพหน้าจอ |
 | `r`  | รีเซ็ตสถิติ |
 
-## 🔌 Arduino/ESP32
+## 🔌 วงจรและการต่อสาย Arduino / ESP32
 
-โค้ด Arduino สำหรับควบคุมมอเตอร์อยู่ในโฟลเดอร์ `arduino/`
+โค้ด Arduino สำหรับควบคุมมอเตอร์และอ่าน GPS อยู่ในโฟลเดอร์ `arduino/motor_controller.ino`
 
-### Pin Configuration
+### ตารางการต่อขา (Pin Configuration)
 
-| Pin | Component |
-|-----|-----------|
-| 9   | Motor PWM |
-| 8   | Buzzer    |
-| 7   | LED Green |
-| 6   | LED Red   |
+| ขา Arduino | อุปกรณ์ | ขาโมดูล | รายละเอียด |
+|------------|---------|---------|------------|
+| Pin 9 | Motor Driver | PWM Pin | ควบคุมความเร็วมอเตอร์ |
+| Pin 8 | Buzzer | VCC/Signal | สัญญาณเสียงเตือน |
+| Pin 7 | LED เขียว | Anode (+) | ไฟเขียว = สวมหมวกนิรภัย |
+| Pin 6 | LED แดง | Anode (+) | ไฟแดง = ไม่สวมหมวกนิรภัย |
+| Pin 4 | โมดูล GPS ATGM336H | TXD | SoftwareSerial RX (รับพิกัดจาก GPS) |
+| Pin 3 | โมดูล GPS ATGM336H | RXD | SoftwareSerial TX |
+| 5V / 3.3V | โมดูล GPS ATGM336H | VCC | แรงดันไฟเลี้ยง |
+| GND | ทุกอุปกรณ์ | GND | กราวด์ร่วม |
+
+*หมายเหตุ: ต่อสายอากาศ Active Antenna เข้ากับขั้วต่อ IPX บนโมดูล ATGM336H และวางสายอากาศในตำแหน่งที่มองเห็นท้องฟ้าได้ชัดเจน*
 
 ## 📁 โครงสร้างโปรเจค
 
 ```
 helmet-detection-system/
-├── helmet_detection.py    # ระบบหลัก
-├── requirements.txt       # dependencies
-├── README.md             # เอกสาร
+├── helmet_detection.py      # โค้ดหลักระบบตรวจจับ + HUD + จัดการพิกัด GPS
+├── requirements.txt         # รายการ dependencies
+├── README.md               # เอกสารคู่มือการใช้งาน
+├── research_document.md    # เอกสารประกอบโปรเจค 7 บท (สถิติ, กฎหมาย, ทฤษฎี, GPS)
 ├── arduino/
-│   └── motor_controller.ino  # Arduino code
-├── logs/                 # บันทึก log (สร้างอัตโนมัติ)
-└── captures/             # ภาพการละเมิด (สร้างอัตโนมัติ)
+│   └── motor_controller.ino # โค้ด Arduino คุมมอเตอร์ + อ่าน GPS ATGM336H
+├── logs/                   # บันทึก log การละเมิดพร้อมพิกัด (สร้างอัตโนมัติ)
+└── captures/               # ภาพหลักฐานการละเมิดพร้อมลายน้ำพิกัด (สร้างอัตโนมัติ)
 ```

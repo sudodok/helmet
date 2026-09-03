@@ -25,6 +25,15 @@ class HelmetDetectionSystem:
         self.frame_count = 0
         self.start_time = time.time()
         
+        # สถานะ GPS (ATGM336H / NEO-M8N)
+        self.current_gps = {
+            'lat': 13.7563,
+            'lon': 100.5018,
+            'speed': 0.0,
+            'satellites': 8,
+            'fix': True
+        }
+        
         # โหลด YOLO model
         self._load_model()
         
@@ -63,6 +72,12 @@ class HelmetDetectionSystem:
                 'cooldown': 5,  # วินาที
                 'capture_violation': True,
                 'sound_alert': True
+            },
+            'gps': {
+                'enabled': True,
+                'module': 'ATGM336H / NEO-M8N',
+                'default_lat': 13.75633,
+                'default_lon': 100.50177
             },
             'electric_motorcycle': {
                 'speed_limit_no_helmet': 25,  # km/h
@@ -336,15 +351,15 @@ class HelmetDetectionSystem:
         
         # พื้นหลัง Dashboard
         overlay = frame.copy()
-        cv2.rectangle(overlay, (10, 10), (350, 200), (0, 0, 0), -1)
+        cv2.rectangle(overlay, (10, 10), (370, 240), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
         
         # หัวข้อ
         cv2.putText(
-            frame, "Helmet Detection System", (20, 40),
+            frame, "Helmet Detection System", (20, 38),
             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
         )
-        cv2.line(frame, (20, 50), (340, 50), (0, 255, 255), 1)
+        cv2.line(frame, (20, 48), (360, 48), (0, 255, 255), 1)
         
         # ข้อมูล
         elapsed = time.time() - self.start_time
@@ -356,13 +371,16 @@ class HelmetDetectionSystem:
             f"Detections: {len(self.detection_history)}",
             f"Violations: {len(self.alert_log)}",
             f"Mode: {'YOLO' if self.model_loaded else 'Demo'}",
-            f"Time: {datetime.now().strftime('%H:%M:%S')}"
+            f"Time: {datetime.now().strftime('%H:%M:%S')}",
+            f"GPS Lat: {self.current_gps['lat']:.5f}",
+            f"GPS Lon: {self.current_gps['lon']:.5f}",
+            f"Speed: {self.current_gps['speed']:.1f} km/h (Sats: {self.current_gps['satellites']})"
         ]
         
         for i, line in enumerate(info_lines):
             cv2.putText(
-                frame, line, (20, 75 + i * 22),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1
+                frame, line, (20, 68 + i * 19),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1
             )
         
         return frame
@@ -374,6 +392,13 @@ class HelmetDetectionSystem:
         violation = {
             'timestamp': timestamp.isoformat(),
             'frame_number': self.frame_count,
+            'gps': {
+                'latitude': self.current_gps['lat'],
+                'longitude': self.current_gps['lon'],
+                'speed_kmh': self.current_gps['speed'],
+                'satellites': self.current_gps['satellites'],
+                'module': self.config.get('gps', {}).get('module', 'ATGM336H / NEO-M8N')
+            },
             'detections': [{
                 'class': d['class'],
                 'confidence': d['confidence'],
@@ -383,12 +408,20 @@ class HelmetDetectionSystem:
         
         self.alert_log.append(violation)
         
-        # บันทึกภาพ
+        # บันทึกภาพพร้อมประทับลายน้ำพิกัด GPS
         if self.config['alert']['capture_violation']:
             filename = f"captures/violation_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
-            cv2.imwrite(filename, frame)
+            annotated_frame = frame.copy()
+            h, w = annotated_frame.shape[:2]
+            
+            # แถบดำด้านล่างภาพสำหรับลายน้ำพิกัด
+            cv2.rectangle(annotated_frame, (0, h - 35), (w, h), (0, 0, 0), -1)
+            watermark_text = f"E-MOTO ALERT | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | SPEED: {self.current_gps['speed']:.1f} km/h | {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+            cv2.putText(annotated_frame, watermark_text, (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+            
+            cv2.imwrite(filename, annotated_frame)
             violation['image'] = filename
-            print(f"[ALERT] บันทึกภาพการละเมิด: {filename}")
+            print(f"[ALERT] บันทึกภาพการละเมิดพร้อมพิกัด GPS: {filename}")
         
         # ส่งสัญญาณจำกัดความเร็ว
         if self.config['electric_motorcycle']['auto_limit_speed']:
@@ -402,27 +435,10 @@ class HelmetDetectionSystem:
     def _send_speed_limit_command(self):
         """ส่งคำสั่งจำกัดความเร็วไปยังตัวควบคุมมอเตอร์"""
         speed_limit = self.config['electric_motorcycle']['speed_limit_no_helmet']
-        
-        try:
-            import serial
-            port = self.config['electric_motorcycle']['serial_port']
-            baud = self.config['electric_motorcycle']['baud_rate']
-            
-            command = json.dumps({
-                'action': 'limit_speed',
-                'max_speed': speed_limit,
-                'reason': 'no_helmet_detected'
-            })
-            
-            with serial.Serial(port, baud, timeout=1) as ser:
-                ser.write(command.encode())
-                ser.write(b'\n')
-                print(f"[MOTOR] จำกัดความเร็ว: {speed_limit} km/h")
-                
-        except ImportError:
+        if hasattr(self, 'controller') and self.controller and self.controller.is_connected:
+            self.controller.set_speed_limit(speed_limit)
+        else:
             print(f"[SIM] จำลองจำกัดความเร็ว: {speed_limit} km/h")
-        except Exception as e:
-            print(f"[ERROR] ไม่สามารถส่งคำสั่ง: {e}")
     
     def _save_log(self, violation):
         """บันทึก log การละเมิด"""
@@ -452,9 +468,18 @@ class HelmetDetectionSystem:
         print("=" * 60)
         print(f" แหล่งวิดีโอ: {source}")
         print(f" โหมด: {'YOLO' if self.model_loaded else 'Demo (Haar Cascade)'}")
+        print(f" โมดูล GPS: {self.config.get('gps', {}).get('module', 'ATGM336H / NEO-M8N')}")
         print("=" * 60)
         print(" กด 'q' เพื่อออก | 's' เพื่อบันทึกภาพ | 'r' เพื่อรีเซ็ต")
         print("=" * 60)
+        
+        # เชื่อมต่อกับตัวควบคุมมอเตอร์และโมดูล GPS
+        motor_cfg = self.config.get('electric_motorcycle', {})
+        self.controller = ElectricMotorcycleController(
+            port=motor_cfg.get('serial_port', '/dev/ttyUSB0'),
+            baud_rate=motor_cfg.get('baud_rate', 9600)
+        )
+        self.controller.connect()
         
         cap = cv2.VideoCapture(source)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config['camera']['width'])
@@ -474,6 +499,12 @@ class HelmetDetectionSystem:
                     break
                 
                 self.frame_count += 1
+                
+                # อ่านอัปเดตข้อมูลพิกัดจาก GPS ATGM336H จริง (ถ้ามี)
+                if self.controller and self.controller.is_connected:
+                    gps_update = self.controller.read_gps_data()
+                    if gps_update:
+                        self.current_gps.update(gps_update)
                 
                 # ตรวจจับวัตถุ
                 detections = self.detect_objects(frame)
@@ -524,6 +555,8 @@ class HelmetDetectionSystem:
         except KeyboardInterrupt:
             print("\n[INFO] หยุดระบบ...")
         finally:
+            if hasattr(self, 'controller') and self.controller:
+                self.controller.disconnect()
             cap.release()
             cv2.destroyAllWindows()
             self._generate_report()
@@ -538,7 +571,9 @@ class HelmetDetectionSystem:
                 'runtime_seconds': round(elapsed, 2),
                 'average_fps': round(self.frame_count / elapsed, 2) if elapsed > 0 else 0,
                 'total_violations': len(self.alert_log),
-                'mode': 'YOLO' if self.model_loaded else 'Demo'
+                'mode': 'YOLO' if self.model_loaded else 'Demo',
+                'gps_module': self.config.get('gps', {}).get('module', 'ATGM336H / NEO-M8N'),
+                'last_known_gps': self.current_gps
             },
             'violations': self.alert_log
         }
@@ -554,6 +589,7 @@ class HelmetDetectionSystem:
         print(f" เวลาทำงาน: {report['summary']['runtime_seconds']} วินาที")
         print(f" FPS เฉลี่ย: {report['summary']['average_fps']}")
         print(f" การละเมิดทั้งหมด: {report['summary']['total_violations']}")
+        print(f" พิกัด GPS ล่าสุด: Lat {self.current_gps['lat']:.5f}, Lon {self.current_gps['lon']:.5f}")
         print(f" รายงานบันทึกที่: {report_file}")
         print("=" * 60)
 
@@ -618,6 +654,28 @@ class ElectricMotorcycleController:
         elif status == 'helmet':
             self.remove_speed_limit()
     
+    def read_gps_data(self):
+        """อ่านข้อมูลพิกัดจาก GPS ATGM336H / NEO-M8N ผ่าน Serial"""
+        if not self.is_connected or not self.serial:
+            return None
+        try:
+            if self.serial.in_waiting > 0:
+                line = self.serial.readline().decode('utf-8', errors='ignore').strip()
+                if line.startswith("GPS:"):
+                    # รูปแบบ: GPS:lat,lon,speed,sats,fix
+                    parts = line[4:].split(',')
+                    if len(parts) >= 5:
+                        return {
+                            'lat': float(parts[0]),
+                            'lon': float(parts[1]),
+                            'speed': float(parts[2]),
+                            'satellites': int(parts[3]),
+                            'fix': parts[4] == '1'
+                        }
+        except Exception:
+            pass
+        return None
+
     def disconnect(self):
         """ตัดการเชื่อมต่อ"""
         if self.is_connected:
@@ -665,6 +723,12 @@ def main():
             'cooldown': 5,
             'capture_violation': True,
             'sound_alert': True
+        },
+        'gps': {
+            'enabled': True,
+            'module': 'ATGM336H / NEO-M8N',
+            'default_lat': 13.75633,
+            'default_lon': 100.50177
         },
         'electric_motorcycle': {
             'speed_limit_no_helmet': 25,
