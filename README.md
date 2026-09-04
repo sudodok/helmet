@@ -69,15 +69,41 @@ python helmet_detection.py
 
 ---
 
+## 🚀 วิธีเปิดใช้งาน (Launcher Scripts)
+
+เลือกเปิดได้ตามการใช้งาน:
+
+### 1. โหมดจำลองสำหรับนำเสนอ (Demo Mode)
+ดับเบิลคลิก **[`run_demo.bat`](file:///C:/Users/WINDOWS%20XI/.gemini/antigravity-ide/scratch/helmet-detection-system/run_demo.bat)**
+* สตาร์ท WebApp Server อัตโนมัติ (`http://localhost:5000`)
+* เปิด Browser ขึ้นมาแสดงหน้า Geofence Monitor ทันที
+* เปิดหน้าต่างจำลองหน้าปัดรถยนต์ (`pc_demo.py`)
+* ข้อมูลความเร็ว พิกัด และสถานะหมวกจะเชื่อมต่อส่งเข้า WebApp แบบ Real-time!
+
+### 2. โหมดตรวจจับของจริง (Real Hardware Mode)
+ดับเบิลคลิก **[`run_real.bat`](file:///C:/Users/WINDOWS%20XI/.gemini/antigravity-ide/scratch/helmet-detection-system/run_real.bat)** (หรือรัน `./run_real.sh` บน Raspberry Pi)
+* สตาร์ท WebApp Server อัตโนมัติ
+* เปิดระบบตรวจจับกล้องจริง + GPS จริง (`helmet_detection.py`)
+* ส่งพิกัดและสถานะจริงเข้า WebApp แบบ Real-time 100% Offline!
+
+---
+
 ## 📁 โครงสร้างโปรเจค
 
 ```
 helmet-detection-system/
+├── run_demo.bat                # 🎮 ดับเบิลคลิกเปิดโหมดสาธิต (PC Demo + WebApp)
+├── run_real.bat                # ⚡ ดับเบิลคลิกเปิดโหมดของจริง (Hardware + WebApp)
+├── run_real.sh                 # 🐧 สคริปต์เปิดโหมดของจริงบน Raspberry Pi 4 (Linux)
 ├── pc_demo.py                  # 💻 โปรแกรมจำลองและสาธิตสำหรับคอมพิวเตอร์ (PC Demo)
-├── run_pc_demo.bat             # ⚡ ตัวเปิดโปรแกรมจำลองบน Windows (Double-click ได้เลย)
 ├── helmet_detection.py         # 🛵 โปรแกรมหลักสำหรับติดตั้งบน Raspberry Pi 4 บนรถจริง
-├── conversation_history.md    # 💬 บันทึกประวัติการพูดคุยและตอบข้อซักถามโครงงาน (Q/A)
-├── hardware_retrofit_guide.md # 📖 คู่มือการดัดแปลงระบบไฟและกล่องคอนโทรลเลอร์รถจริง
+├── webapp/                     # 🗺️ ระบบ GPS Geofence Monitor (100% Offline)
+│   ├── server.py               # Flask WebSocket Server + Telemetry Bridge
+│   ├── geofence.py             # Haversine Distance + Circle Geofence Module
+│   └── templates/
+│       └── index.html          # Dashboard WebApp (Canvas Map + Live Alerts)
+├── conversation_history.md     # 💬 บันทึกประวัติการพูดคุยและตอบข้อซักถามโครงงาน (Q/A)
+├── hardware_retrofit_guide.md  # 📖 คู่มือการดัดแปลงระบบไฟและกล่องคอนโทรลเลอร์รถจริง
 ├── research_document.md       # 📑 เอกสารประกอบโครงงาน 7 บท พร้อมสถิติและงานวิจัย
 ├── requirements.txt            # รายการ Python dependencies
 ├── README.md                  # เอกสารแนะนำและคู่มือการใช้งาน

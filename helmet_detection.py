@@ -34,12 +34,47 @@ class HelmetDetectionSystem:
             'fix': True
         }
         
+        # สถานะหมวกนิรภัยล่าสุด
+        self.last_helmet_status = True
+
         # โหลด YOLO model
         self._load_model()
         
         # สร้างโฟลเดอร์สำหรับบันทึก
         os.makedirs('logs', exist_ok=True)
         os.makedirs('captures', exist_ok=True)
+
+        # เริ่มต้นส่ง Telemetry ไปยัง WebApp Server (localhost:5000)
+        self._init_telemetry()
+
+    def _init_telemetry(self):
+        """เริ่มเธรดส่งข้อมูลพิกัด GPS จริงและความเร็วไปยัง WebApp Server แบบ Real-time"""
+        import threading
+        import urllib.request
+        def telemetry_worker():
+            while True:
+                time.sleep(0.4)
+                try:
+                    payload = json.dumps({
+                        'lat': self.current_gps['lat'],
+                        'lon': self.current_gps['lon'],
+                        'speed': self.current_gps['speed'],
+                        'helmet': getattr(self, 'last_helmet_status', True),
+                        'engine_locked': not getattr(self, 'last_helmet_status', True),
+                        'satellites': self.current_gps['satellites'],
+                        'source': 'Hardware System (Real)'
+                    }).encode('utf-8')
+                    req = urllib.request.Request(
+                        'http://localhost:5000/api/telemetry',
+                        data=payload,
+                        headers={'Content-Type': 'application/json'},
+                        method='POST'
+                    )
+                    with urllib.request.urlopen(req, timeout=0.2):
+                        pass
+                except Exception:
+                    pass
+        threading.Thread(target=telemetry_worker, daemon=True).start()
         
     def _default_config(self):
         """ค่าตั้งต้นของระบบ"""
@@ -519,6 +554,7 @@ class HelmetDetectionSystem:
                 
                 # วาดผลการตรวจจับ
                 frame, violation = self.draw_detections(frame, detections)
+                self.last_helmet_status = not violation
                 
                 # วาด Dashboard
                 frame = self.draw_dashboard(frame)
@@ -543,6 +579,13 @@ class HelmetDetectionSystem:
                 
                 # แสดงผล
                 cv2.imshow('Helmet Detection System', frame)
+
+                # ตรวจจับการกดปุ่มกากบาท [X] ปิดหน้าต่าง (ป้องกันค้างบน Windows)
+                try:
+                    if cv2.getWindowProperty('Helmet Detection System', cv2.WND_PROP_VISIBLE) < 1:
+                        break
+                except Exception:
+                    pass
                 
                 # จัดการ keyboard input
                 key = cv2.waitKey(1) & 0xFF
@@ -566,6 +609,8 @@ class HelmetDetectionSystem:
                 self.controller.disconnect()
             cap.release()
             cv2.destroyAllWindows()
+            for _ in range(5):
+                cv2.waitKey(1)
             self._generate_report()
     
     def _generate_report(self):

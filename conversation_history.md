@@ -155,17 +155,73 @@
 
 ---
 
-## 12. สรุปโครงสร้างไฟล์ทั้งหมดในโปรเจค
+## 13. การทำงานของระบบ GPS Geofencing แบบ 100% Offline (ไม่ใช้ WiFi)
+* **คำถามจากผู้ใช้**: *"ต้องการให้ระบบทั้งหมดเป็นแบบ Offline โดยระบบ GPS ที่ต้องการตอนนี้คือ อยากกำหนดขอบเขตที่รถสามารถขับได้ โดยถ้ามีการขับออกเขตที่กำหนด อยากให้มีการแจ้งเตือนใน WebApp และไม่อยากให้ใช้ WiFi"*
+* **คำตอบและแนวทางสถาปัตยกรรม**:
+  - **ทำงาน 100% Offline บนเครื่องเดียว (Localhost Architecture)**:
+    - ทั้งระบบตรวจจับ, เซิร์ฟเวอร์ Flask (`webapp/server.py`), และหน้าเว็บแดชบอร์ด (`webapp/templates/index.html`) รันอยู่บนอุปกรณ์เครื่องเดียวกัน (เช่น บน Raspberry Pi 4 ที่มีหน้าจอติดหน้ารถ หรือคอมพิวเตอร์)
+    - สื่อสารกันผ่าน **Local Loopback (`127.0.0.1:5000`)** ไม่ต้องเชื่อมต่อ WiFi, เครือข่ายภายนอก หรือเสาสัญญาณอินเทอร์เน็ตใดๆ
+  - **อัลกอริทึมการคำนวณระยะทาง Haversine Formula**:
+    - ใช้สูตร Haversine คำนวณระยะห่างระหว่างพิกัดปัจจุบันของรถกับจุดศูนย์กลางของเขตบนพื้นโลกทรงกลม (Earth Radius = 6,371,000 เมตร) โดยไม่ต้องพึ่งพาไลบรารีภายนอก
+    - ถ้าระยะห่างเกินกว่ารัศมีที่กำหนด (`distance > radius`) → ถือว่า **ออกนอกเขต (Out of Geofence)**
+  - **แผนที่ออฟไลน์ด้วย HTML5 Canvas**:
+    - วาดแผนที่ Grid Coordinate, วงกลม Geofence, ตำแหน่งรถปัจจุบัน, และเส้นทางวิ่ง (Trail) ด้วย HTML5 Canvas 100% ไม่ต้องดึง Map Tiles จาก Google Maps หรือ OpenStreetMap
+  - **ระบบแจ้งเตือนฉุกเฉิน (Buzzer Alert + Red Banner)**:
+    - เมื่อรถออกนอกเขต หน้าเว็บจะแสดงป้ายเตือนกระพริบสีแดงขนาดใหญ่ `⛔ WARNING: MOTORCYCLE LEFT GEOFENCE ZONE!`
+    - สังเคราะห์เสียงสัญญาณเตือนความถี่ 880Hz ผ่าน Web Audio API ให้ลำโพงดัง Beep ต่อเนื่อง
+
+---
+
+## 14. การเชื่อมต่อ WebApp เข้ากับโปรแกรมตรวจจับ (Real-time Telemetry Bridge)
+* **คำถามจากผู้ใช้**: *"ต้องการให้ WebApp ใช้กับโปรแกรมได้"*
+* **การออกแบบระบบ**:
+  - สร้าง Endpoint `/api/telemetry` บน Flask Server
+  - ทั้ง `pc_demo.py` (โหมดจำลอง) และ `helmet_detection.py` (โหมดของจริง) จะมี Background Daemon Thread ส่งพิกัด GPS, ความเร็ว, สถานะหมวก, และสถานะ Engine Lock มายัง WebApp ทุก 0.3-0.4 วินาที
+  - ส่งผ่าน HTTP POST JSON ภายในเครื่อง (ใช้ `urllib.request` มาตรฐานของ Python)
+  - ไม่กระทบต่อ Framerate (FPS) ของการตรวจจับกล้อง
+  - หน้า WebApp จะแสดงสถานะทันที:
+    - `📡 LIVE: PC DEMO SIMULATOR` (เมื่อเปิดโหมดจำลอง)
+    - `📡 LIVE: HARDWARE SYSTEM (REAL)` (เมื่อเปิดโหมดจริง)
+    - `🔒 ENGINE: LOCKED` หรือ `⚡ ENGINE: READY`
+
+---
+
+## 15. การแยกไฟล์ Launcher Scripts (.bat / .sh) ระหว่าง Demo กับของจริง
+* **คำถามจากผู้ใช้**: *"ทำไฟล์ .bat ได้โดยแยกระหว่าง demo กับของจริง"*
+* **ไฟล์ที่สร้างขึ้น**:
+  1. **`run_demo.bat` (โหมดนำเสนอ / Demo Mode)**:
+     - สตาร์ท WebApp Server ในเบื้องหลัง
+     - เปิดเบราว์เซอร์ไปที่ `http://localhost:5000` อัตโนมัติ
+     - เปิดโปรแกรมหน้าปัดเสมือนจริง `pc_demo.py` ให้ผู้ใช้กดคีย์ลัดเร่งเครื่อง เบรก และจำลองหมวก
+     - เชื่อมต่อข้อมูลเข้า WebApp ทันที
+  2. **`run_real.bat` (โหมดของจริง / Hardware Mode บน Windows)**:
+     - สตาร์ท WebApp Server ในเบื้องหลัง
+     - เปิดเบราว์เซอร์
+     - เปิดโปรแกรมหลัก `helmet_detection.py` รันกล้องจริง, ประมวลผล YOLO/Haar, และอ่าน GPS จริง
+  3. **`run_real.sh` (โหมดของจริงบน Raspberry Pi 4 Linux)**:
+     - สคริปต์ Bash สำหรับเปิดระบบจริงอัตโนมัติบนตัวรถ
+
+---
+
+## 16. สรุปโครงสร้างไฟล์ทั้งหมดในโปรเจค (เวอร์ชันล่าสุด)
 
 ```
 helmet-detection-system/
+├── run_demo.bat                # 🎮 ดับเบิลคลิกเปิดโหมดสาธิต (PC Demo + WebApp)
+├── run_real.bat                # ⚡ ดับเบิลคลิกเปิดโหมดของจริง (Hardware + WebApp)
+├── run_real.sh                 # 🐧 สคริปต์เปิดโหมดของจริงบน Raspberry Pi 4 (Linux)
+├── run_geofence.bat            # 🗺️ ดับเบิลคลิกเปิดเฉพาะ WebApp Server
 ├── pc_demo.py                  # 💻 โปรแกรมจำลองและสาธิตสำหรับคอมพิวเตอร์ (PC Demo Version)
-├── run_pc_demo.bat             # ⚡ ตัวเปิดโปรแกรมจำลองบน Windows (Double-click ใช้งานได้ทันที)
 ├── helmet_detection.py         # 🛵 โปรแกรมหลักสำหรับติดตั้งบน Raspberry Pi 4 บนรถมอเตอร์ไซค์จริง
+├── webapp/                     # 🗺️ ระบบ GPS Geofence Monitor (100% Offline)
+│   ├── server.py               # Flask WebSocket Server + Telemetry Bridge (/api/telemetry)
+│   ├── geofence.py             # Haversine Distance + Circle Geofence Module
+│   └── templates/
+│       └── index.html          # Dashboard WebApp (Canvas Map + Live Alerts)
 ├── hardware_retrofit_guide.md # 📖 คู่มือการดัดแปลงระบบไฟและกล่องคอนโทรลเลอร์รถมอเตอร์ไซค์ไฟฟ้าจริง
 ├── research_document.md       # 📑 เอกสารประกอบโครงงาน 7 บท (สถิติ, กฎหมาย, ทฤษฎี, GPS)
 ├── conversation_history.md    # 💬 บันทึกประวัติการพูดคุยและตอบข้อซักถามเชิงเทคนิค (ไฟล์นี้)
-├── requirements.txt            # รายการ Python dependencies (OpenCV, numpy, etc.)
+├── requirements.txt            # รายการ Python dependencies (OpenCV, numpy, Flask, SocketIO)
 ├── README.md                  # เอกสารคู่มือแนะนำการติดตั้งและใช้งานภาพรวม
 ├── .gitignore                 # ไฟล์ละเว้นไฟล์แคชและรูปภาพทดสอบขึ้น Git
 ├── arduino/

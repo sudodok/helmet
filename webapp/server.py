@@ -31,7 +31,14 @@ alert_logger = GeofenceAlertLogger(
     log_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
 )
 
-# ========== GPS Simulation State (สำหรับทดสอบบน PC) ==========
+# ========== Telemetry State (รับข้อมูลจาก pc_demo หรือ helmet_detection) ==========
+external_telemetry = {
+    'active': False,
+    'last_seen': 0.0,
+    'source': 'Internal Demo'
+}
+
+# ========== GPS State ==========
 gps_state = {
     'lat': 13.756331,
     'lon': 100.501765,
@@ -40,6 +47,7 @@ gps_state = {
     'heading': 45.0,   # ทิศทางเป็นองศา (0=เหนือ, 90=ตะวันออก)
     'is_moving': False,
     'helmet': True,
+    'engine_locked': False,
     'trail': [],
     'was_outside': False,
     'alert_count': 0
@@ -49,29 +57,25 @@ GPS_THREAD_RUNNING = True
 
 
 def simulate_gps_movement():
-    """Thread จำลองการเคลื่อนที่ GPS (สำหรับ PC Demo)"""
+    """Thread ตรวจสอบ Geofence และส่งข้อมูลไปยัง Browser (รับทั้งโปรแกรมจริงและจำลอง)"""
     global GPS_THREAD_RUNNING
 
     while GPS_THREAD_RUNNING:
-        time.sleep(0.5)
+        time.sleep(0.3)
 
-        if gps_state['is_moving']:
-            # จำลองการเคลื่อนที่ไปในทิศทางที่กำหนด
+        is_external = (time.time() - external_telemetry['last_seen']) < 2.5
+        external_telemetry['active'] = is_external
+
+        # ถ้าไม่มีโปรแกรมภายนอกส่งพิกัดมา และเปิดโหมดวิ่งจำลอง
+        if not is_external and gps_state['is_moving']:
             speed_ms = gps_state['speed'] / 3.6   # km/h -> m/s
-            distance_m = speed_ms * 0.5            # ระยะที่เคลื่อนที่ใน 0.5 วินาที
-
+            distance_m = speed_ms * 0.3
             heading_rad = math.radians(gps_state['heading'])
-            # 1 degree latitude ≈ 111,320 m
             dlat = (distance_m * math.cos(heading_rad)) / 111320.0
-            # 1 degree longitude ≈ 111,320 * cos(lat) m
             dlon = (distance_m * math.sin(heading_rad)) / (111320.0 * math.cos(math.radians(gps_state['lat'])))
-
             gps_state['lat'] += dlat
             gps_state['lon'] += dlon
-
-            # สุ่มเบี่ยงทิศเล็กน้อย
-            gps_state['heading'] += random.uniform(-3, 3)
-            gps_state['heading'] %= 360
+            gps_state['heading'] = (gps_state['heading'] + random.uniform(-3, 3)) % 360
 
         # ตรวจสอบ Geofence
         dist_to_center = geofence.distance_to_center(gps_state['lat'], gps_state['lon'])
@@ -87,10 +91,12 @@ def simulate_gps_movement():
             )
         gps_state['was_outside'] = not is_inside
 
-        # เก็บเส้นทาง Trail (จำกัด 500 จุดล่าสุด)
-        gps_state['trail'].append({'lat': gps_state['lat'], 'lon': gps_state['lon']})
-        if len(gps_state['trail']) > 500:
-            gps_state['trail'] = gps_state['trail'][-500:]
+        # เก็บเส้นทาง Trail (เฉพาะเมื่อรถเคลื่อนที่ หรือมีตำแหน่งใหม่)
+        current_pt = {'lat': round(gps_state['lat'], 6), 'lon': round(gps_state['lon'], 6)}
+        if not gps_state['trail'] or (gps_state['trail'][-1]['lat'] != current_pt['lat'] or gps_state['trail'][-1]['lon'] != current_pt['lon']):
+            gps_state['trail'].append(current_pt)
+            if len(gps_state['trail']) > 500:
+                gps_state['trail'] = gps_state['trail'][-500:]
 
         # ส่งข้อมูลไปยัง Browser ผ่าน WebSocket
         socketio.emit('gps_update', {
@@ -100,10 +106,13 @@ def simulate_gps_movement():
             'satellites': gps_state['satellites'],
             'heading': round(gps_state['heading'], 1),
             'helmet': gps_state['helmet'],
+            'engine_locked': gps_state['engine_locked'],
             'is_inside': is_inside,
             'dist_to_center': round(dist_to_center, 1),
             'dist_to_boundary': round(dist_to_boundary, 1),
             'alert_count': gps_state['alert_count'],
+            'source': external_telemetry['source'] if is_external else 'Standalone Demo',
+            'is_external': is_external,
             'trail': gps_state['trail'][-200:]   # ส่ง 200 จุดล่าสุด
         })
 
@@ -113,6 +122,39 @@ def simulate_gps_movement():
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/api/telemetry', methods=['POST'])
+def receive_telemetry():
+    """รับข้อมูล Telemetry สดจาก pc_demo.py หรือ helmet_detection.py"""
+    global external_telemetry
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return jsonify({'status': 'error', 'message': 'Empty data'}), 400
+
+        if 'lat' in data and data['lat'] is not None:
+            gps_state['lat'] = float(data['lat'])
+        if 'lon' in data and data['lon'] is not None:
+            gps_state['lon'] = float(data['lon'])
+        if 'speed' in data:
+            gps_state['speed'] = float(data['speed'])
+        if 'helmet' in data:
+            gps_state['helmet'] = bool(data['helmet'])
+        if 'engine_locked' in data:
+            gps_state['engine_locked'] = bool(data['engine_locked'])
+        if 'satellites' in data:
+            gps_state['satellites'] = int(data['satellites'])
+        if 'heading' in data:
+            gps_state['heading'] = float(data['heading'])
+
+        external_telemetry['active'] = True
+        external_telemetry['last_seen'] = time.time()
+        external_telemetry['source'] = data.get('source', 'Live Program')
+
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
 
 
 @app.route('/api/geofence', methods=['GET'])

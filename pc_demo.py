@@ -83,6 +83,37 @@ class PCHelmetSimulator:
         self.cap = None
         self._init_camera()
 
+        # เริ่มต้นส่งข้อมูล Telemetry ไปยัง WebApp Server (ทำงานแบบ Background Thread)
+        self._init_telemetry()
+
+    def _init_telemetry(self):
+        """เริ่มเธรดส่งข้อมูลพิกัดและความเร็วไปยัง WebApp Server (localhost:5000) แบบ Real-time"""
+        def telemetry_worker():
+            import urllib.request
+            while True:
+                time.sleep(0.3)
+                try:
+                    payload = json.dumps({
+                        'lat': self.gps_lat,
+                        'lon': self.gps_lon,
+                        'speed': self.current_speed,
+                        'helmet': not (self.is_violation_active or self.engine_locked),
+                        'engine_locked': self.engine_locked,
+                        'satellites': self.gps_satellites,
+                        'source': 'PC Demo Simulator'
+                    }).encode('utf-8')
+                    req = urllib.request.Request(
+                        'http://localhost:5000/api/telemetry',
+                        data=payload,
+                        headers={'Content-Type': 'application/json'},
+                        method='POST'
+                    )
+                    with urllib.request.urlopen(req, timeout=0.2):
+                        pass
+                except Exception:
+                    pass
+        threading.Thread(target=telemetry_worker, daemon=True).start()
+
     def _init_camera(self):
         """เริ่มต้นเปิดกล้อง Webcam"""
         try:
@@ -190,6 +221,7 @@ class PCHelmetSimulator:
 
     def update_physics(self, is_violation):
         """จำลองระบบขับเคลื่อนรถมอเตอร์ไซค์ไฟฟ้าจริง พร้อมระบบตัดสตาร์ท (Start Interlock)"""
+        self.is_violation_active = is_violation
         # 1. กรณีที่รถยังไม่สตาร์ท หรือรถจอดนิ่ง:
         if not self.engine_started or self.current_speed == 0.0:
             if is_violation:

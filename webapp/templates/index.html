@@ -250,7 +250,8 @@
 <div class="top-bar">
     <h1>🛰️ GPS GEOFENCE MONITOR — OFFLINE</h1>
     <div class="status-pills">
-        <div class="pill info" id="pillOffline">🔌 OFFLINE MODE</div>
+        <div class="pill info" id="pillSource">📡 STANDALONE DEMO</div>
+        <div class="pill safe" id="pillEngine">⚡ ENGINE READY</div>
         <div class="pill safe" id="pillGeofence">✅ IN ZONE</div>
         <div class="pill safe" id="pillHelmet">🪖 HELMET OK</div>
     </div>
@@ -495,10 +496,34 @@ function updateUI(d) {
     // Alert count
     document.getElementById('alertCount').textContent = d.alert_count;
 
-    // Helmet
+    // Helmet pill
     const hp = document.getElementById('pillHelmet');
     hp.textContent = d.helmet ? '🪖 HELMET OK' : '⛔ NO HELMET';
     hp.className = 'pill ' + (d.helmet ? 'safe' : 'danger');
+
+    // Telemetry Source pill
+    const srcPill = document.getElementById('pillSource');
+    if (srcPill) {
+        if (d.is_external) {
+            srcPill.textContent = '📡 LIVE: ' + (d.source || 'CONNECTED');
+            srcPill.className = 'pill safe';
+        } else {
+            srcPill.textContent = '🎮 DEMO SIMULATOR';
+            srcPill.className = 'pill info';
+        }
+    }
+
+    // Engine Lock pill
+    const engPill = document.getElementById('pillEngine');
+    if (engPill) {
+        if (d.engine_locked) {
+            engPill.textContent = '🔒 ENGINE LOCKED';
+            engPill.className = 'pill danger';
+        } else {
+            engPill.textContent = '⚡ ENGINE READY';
+            engPill.className = 'pill safe';
+        }
+    }
 }
 
 // ========== MAP DRAWING ==========
