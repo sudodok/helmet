@@ -20,6 +20,8 @@ import time
 import os
 import json
 import threading
+import urllib.request
+import urllib.error
 from datetime import datetime
 
 # รองรับเสียงเตือนบน Windows
@@ -107,6 +109,39 @@ class PCHelmetSimulator:
                 except Exception:
                     pass
             threading.Thread(target=beep_worker, daemon=True).start()
+
+    def _send_telemetry_async(self, is_violation):
+        """ส่งข้อมูล Telemetry ไปยัง WebApp Server (http://localhost:5000/api/telemetry)"""
+        now = time.time()
+        if now - getattr(self, '_last_telemetry_time', 0) < 0.25:
+            return  # ส่งทุก ~250ms เพื่อประหยัด CPU และคง FPS ไว้สูง
+        self._last_telemetry_time = now
+
+        payload = {
+            'lat': self.gps_lat,
+            'lon': self.gps_lon,
+            'speed': self.current_speed,
+            'satellites': self.gps_satellites,
+            'heading': 45.0,
+            'helmet': not is_violation,
+            'engine_locked': self.engine_locked,
+            'source': 'PC Demo Simulator'
+        }
+
+        def post_worker():
+            try:
+                data_bytes = json.dumps(payload).encode('utf-8')
+                req = urllib.request.Request(
+                    'http://127.0.0.1:5000/api/telemetry',
+                    data=data_bytes,
+                    headers={'Content-Type': 'application/json'}
+                )
+                with urllib.request.urlopen(req, timeout=0.3):
+                    pass
+            except Exception:
+                pass  # หาก WebApp server ยังไม่เปิด ให้ข้ามไปเงียบๆ ไม่กระทบระบบ
+
+        threading.Thread(target=post_worker, daemon=True).start()
 
     def get_frame(self):
         """ดึงภาพจากกล้องจริง หรือสร้างภาพจำลองผู้ขับขี่"""
@@ -502,6 +537,9 @@ class PCHelmetSimulator:
                 
                 # 3. คำนวณฟิสิกส์ความเร็วและ GPS
                 self.update_physics(violation)
+                
+                # 3.1 ส่ง Telemetry ไปยัง WebApp Server (Offline Geofence Monitor)
+                self._send_telemetry_async(violation)
                 
                 # 4. หากพบการละเมิด บันทึกภาพและประทับลายน้ำพิกัด
                 if violation:

@@ -250,7 +250,8 @@
 <div class="top-bar">
     <h1>🛰️ GPS GEOFENCE MONITOR — OFFLINE</h1>
     <div class="status-pills">
-        <div class="pill info" id="pillOffline">🔌 OFFLINE MODE</div>
+        <div class="pill info" id="pillSource">📡 STANDALONE DEMO</div>
+        <div class="pill safe" id="pillIgnition">⚡ ENGINE READY</div>
         <div class="pill safe" id="pillGeofence">✅ IN ZONE</div>
         <div class="pill safe" id="pillHelmet">🪖 HELMET OK</div>
     </div>
@@ -499,6 +500,24 @@ function updateUI(d) {
     const hp = document.getElementById('pillHelmet');
     hp.textContent = d.helmet ? '🪖 HELMET OK' : '⛔ NO HELMET';
     hp.className = 'pill ' + (d.helmet ? 'safe' : 'danger');
+
+    // Telemetry Source
+    const sp = document.getElementById('pillSource');
+    if (sp && d.source) {
+        sp.textContent = '📡 ' + d.source.toUpperCase();
+    }
+
+    // Engine Ignition Status
+    const ip = document.getElementById('pillIgnition');
+    if (ip) {
+        if (d.engine_locked) {
+            ip.textContent = '⛔ ENGINE LOCKED';
+            ip.className = 'pill danger';
+        } else {
+            ip.textContent = '⚡ ENGINE READY';
+            ip.className = 'pill safe';
+        }
+    }
 }
 
 // ========== MAP DRAWING ==========

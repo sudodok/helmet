@@ -3,6 +3,9 @@ import numpy as np
 from collections import deque
 import time
 import json
+import threading
+import urllib.request
+import urllib.error
 from datetime import datetime
 import os
 
@@ -40,7 +43,41 @@ class HelmetDetectionSystem:
         # สร้างโฟลเดอร์สำหรับบันทึก
         os.makedirs('logs', exist_ok=True)
         os.makedirs('captures', exist_ok=True)
-        
+        self._last_telemetry_time = 0.0
+
+    def _send_telemetry_async(self, violation):
+        """ส่งข้อมูล Telemetry ไปยัง WebApp Server (http://localhost:5000/api/telemetry)"""
+        now = time.time()
+        if now - self._last_telemetry_time < 0.25:
+            return  # ส่งทุก ~250ms เพื่อคงประสิทธิภาพ
+        self._last_telemetry_time = now
+
+        payload = {
+            'lat': float(self.current_gps.get('lat', 13.7563)),
+            'lon': float(self.current_gps.get('lon', 100.5018)),
+            'speed': float(self.current_gps.get('speed', 0.0)),
+            'satellites': int(self.current_gps.get('satellites', 8)),
+            'heading': 0.0,
+            'helmet': not violation,
+            'engine_locked': bool(violation),
+            'source': 'Raspberry Pi System'
+        }
+
+        def post_worker():
+            try:
+                data_bytes = json.dumps(payload).encode('utf-8')
+                req = urllib.request.Request(
+                    'http://127.0.0.1:5000/api/telemetry',
+                    data=data_bytes,
+                    headers={'Content-Type': 'application/json'}
+                )
+                with urllib.request.urlopen(req, timeout=0.3):
+                    pass
+            except Exception:
+                pass
+
+        threading.Thread(target=post_worker, daemon=True).start()
+
     def _default_config(self):
         """ค่าตั้งต้นของระบบ"""
         return {
@@ -519,6 +556,9 @@ class HelmetDetectionSystem:
                 
                 # วาดผลการตรวจจับ
                 frame, violation = self.draw_detections(frame, detections)
+                
+                # ส่ง Telemetry ไปยัง WebApp Server (Offline Geofence Monitor)
+                self._send_telemetry_async(violation)
                 
                 # วาด Dashboard
                 frame = self.draw_dashboard(frame)
