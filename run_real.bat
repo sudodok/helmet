@@ -1,39 +1,37 @@
 @echo off
-chcp 65001 > nul
-title [REAL] ระบบตรวจจับหมวกนิรภัยของจริง (Hardware Mode) + Geofence WebApp
+title Helmet Detection System - Real Mode (Hardware)
 cd /d "%~dp0"
 
 echo =========================================================================
-echo   ⚡  เปิดระบบตรวจจับของจริง (REAL HARDWARE MODE)
-echo   1. สตาร์ท WebApp Server (http://localhost:5000)
-echo   2. เปิดระบบตรวจจับหมวกนิรภัยกล้องจริง + GPS + รีเลย์ควบคุมรถ
+echo   HELMET DETECTION SYSTEM - REAL HARDWARE MODE
+echo   1. Starting WebApp Server (http://localhost:5000)...
+echo   2. Opening Real Helmet Detection (Camera + GPS)...
 echo =========================================================================
 echo.
 
-:: 1. เปิด WebApp Server ในหน้าต่างย่อ (Minimized)
-echo [1/3] กำลังสตาร์ท WebApp Server...
+REM 1. Start WebApp Server in minimized window
+echo [1/3] Starting WebApp Server...
 start "Helmet Geofence Server" /min python webapp\server.py
 
-:: 2. รอเซิร์ฟเวอร์เริ่มทำงาน 2 วินาที แล้วเปิดเบราว์เซอร์
-timeout /t 2 /nobreak > nul
-echo [2/3] เปิดหน้าเว็บ Geofence Monitor (http://localhost:5000)...
+REM 2. Wait 2 seconds and open browser
+ping 127.0.0.1 -n 3 > nul
+echo [2/3] Opening WebApp (http://localhost:5000)...
 start http://localhost:5000
 
-:: 3. เปิดโปรแกรมตรวจจับหมวกกล้องจริง (helmet_detection.py)
-echo [3/3] กำลังเริ่มโปรแกรมตรวจจับกล้องจริง (helmet_detection.py)...
+REM 3. Run Real Helmet Detection
+echo [3/3] Starting Helmet Detection System...
 echo.
 echo =========================================================================
-echo   📹 ระบบจะเปิดกล้องเพื่อตรวจจับผู้ขับขี่จริง
-echo   - [Q] : ออกจากโปรแกรม
-echo   - [S] : บันทึกภาพถ่ายเองด้วยตนเอง
-echo   - [R] : รีเซ็ตสถิติระบบ
+echo   - [Q] : Quit
+echo   - [S] : Save snapshot manually
+echo   - [R] : Reset statistics
 echo =========================================================================
 echo.
 
 python helmet_detection.py
 
 echo.
-echo [INFO] ปิดระบบเรียบร้อยแล้ว กำลังปิด WebApp Server...
+echo [INFO] Stopping WebApp Server...
 taskkill /f /fi "WINDOWTITLE eq Helmet Geofence Server*" > nul 2>&1
-echo [DONE] ปิดระบบทั้งหมดเสร็จสมบูรณ์
+echo [DONE] Finished.
 pause
