@@ -155,71 +155,21 @@
 
 ---
 
-## 13. ระบบ GPS Geofence Monitor WebApp (100% Offline — ไม่ต้องใช้ WiFi/อินเทอร์เน็ต)
-
-* **คำถามจากผู้ใช้**:
-  > *"ต้องการให้ระบบทั้งเป็นแบบ offline โดยระบบ gps ที่ต้องการตอนนี้คือ อยากกำหนดขอบเขตที่รถสามาถขับได้ โดยถ้ามีการขับออกเขตที่กำหนด อยากให้มีการแจ้งเตือนใน webapp (แจ้งเตือนบน WebApp อย่างเดียว วงกลม ไม่อยากให้ใช้ wifi อะ อยากให้ได้แบบ offline)"*
-* **แนวคิดและสถาปัตยกรรม 100% Offline**:
-  - WebApp ถูกสร้างขึ้นด้วย Flask + Flask-SocketIO + HTML5 Canvas โดยรันบนเครื่อง Raspberry Pi 4 (หรือคอมพิวเตอร์) เดียวกันผ่าน `http://localhost:5000` ภายในเครื่อง (Loopback Interface)
-  - **ไม่ต้องใช้ WiFi หรืออินเทอร์เน็ตแม้แต่น้อย**: เบราว์เซอร์ดึงหน้าเว็บจากเครื่องตนเอง แผนที่วาดด้วยคำสั่งทางคณิตศาสตร์บน Canvas (คำนวณผ่านสูตร **Haversine**) โดยไม่พึ่ง Google Maps API
-  - **การทำงานของ Geofence**:
-    1. ผู้ใช้กำหนดจุดศูนย์กลาง (Latitude, Longitude) และรัศมี (เมตร) เป็นวงกลมจากหน้าเว็บ หรือกดปุ่ม *"📍 ใช้ตำแหน่งปัจจุบัน"*
-    2. รถรับพิกัดจาก GPS และคำนวณระยะทางจากจุดศูนย์กลางแบบ Real-time
-    3. หากรถวิ่งหลุดออกจากรัศมีวงกลมที่กำหนด:
-       - 🔴 ป้ายเตือนสีแดงขนาดใหญ่กระพริบทันทีบนหน้า WebApp: `⛔ WARNING: MOTORCYCLE LEFT GEOFENCE ZONE! ออกนอกเขตพื้นที่!`
-       - 🔊 ส่งเสียงสัญญาณเตือน Beep ผ่านลำโพงเครื่องทุกๆ 1 วินาที
-       - 📝 บันทึกประวัติการละเมิดลงไฟล์ `logs/geofence_alerts_YYYYMMDD.json` พร้อมพิกัดและความเร็วทันที
-
----
-
-## 14. สคริปต์เปิดระบบพร้อมกันในคลิกเดียว (One-Click Launchers)
-
-* **คำถามจากผู้ใช้**:
-  > *"ทำให้ระบบ webapp ใช่กับโปรแกรมได้ แล้วทำไฟล์ .bat ที่ รันทุกอย่างพร้อมกัน ทำสองอันแยก ระหว่าง ของจริงกับ demo"*
-* **การเชื่อมต่อระหว่างโปรแกรมตรวจจับกับ WebApp**:
-  - เพิ่ม API Endpoint `POST /api/telemetry` ใน `webapp/server.py`
-  - ทั้ง `pc_demo.py` และ `helmet_detection.py` ส่งข้อมูลพิกัดดาวเทียม, ความเร็ว, สถานะหมวก, สถานะการสตาร์ท ไปยัง WebApp Server ผ่านพื้นหลังโดยตรงแบบไม่กระตุกเฟรมเรต
-* **สคริปต์สั่งรันระบบ 2 ชุด**:
-  1. **`run_all_demo.bat` (เวอร์ชันนำเสนอ / PC Demo)**:
-     - ดับเบิลคลิกแล้วระบบจะ:
-       1. สตาร์ท WebApp Server เบื้องหลัง
-       2. เปิดเบราว์เซอร์ไปที่ `http://localhost:5000` ให้อัตโนมัติ
-       3. เปิดหน้าต่างจำลองเรือนไมล์ดิจิทัล HUD (`pc_demo.py`) พร้อมทดสอบคันเร่ง เบรก และสลับหมวกกันน็อค
-       4. เมื่อปิดโปรแกรม จะปิด WebApp Server ให้โดยอัตโนมัติ
-  2. **`run_all_real.bat` (เวอร์ชันติดตั้งบนตัวรถจริง)**:
-     - ดับเบิลคลิกแล้วระบบจะ:
-       1. สตาร์ท WebApp Server เบื้องหลัง
-       2. เปิดเบราว์เซอร์ไปที่ `http://localhost:5000`
-       3. เปิดกล้องตรวจจับภาพจริง และเชื่อมต่อโมดูล GPS ATGM336H + รีเลย์ควบคุมมอเตอร์ (`helmet_detection.py`)
-       4. เมื่อปิดกล้อง จะปิด WebApp Server ให้โดยอัตโนมัติ
-  3. **`run_all_real.sh` (สำหรับ Raspberry Pi OS / Linux)**:
-     - รองรับการเปิดใช้งานบนลินุกซ์ด้วยคำสั่ง `./run_all_real.sh`
-
----
-
-## 15. สรุปโครงสร้างไฟล์ทั้งหมดในโปรเจค
+## 12. สรุปโครงสร้างไฟล์ทั้งหมดในโปรเจค
 
 ```
 helmet-detection-system/
-├── run_all_demo.bat            # 🚀 ดับเบิลคลิกเปิด PC Demo + WebApp พร้อมกัน (แนะนำ)
-├── run_all_real.bat            # ⚡ ดับเบิลคลิกเปิดระบบจริง + WebApp พร้อมกัน
-├── run_all_real.sh             # 🍓 สคริปต์เปิดระบบจริงบน Raspberry Pi OS (Linux)
 ├── pc_demo.py                  # 💻 โปรแกรมจำลองและสาธิตสำหรับคอมพิวเตอร์ (PC Demo Version)
-├── run_pc_demo.bat             # ⚡ ตัวเปิดเฉพาะ PC Demo
-├── run_geofence.bat            # 🌐 ตัวเปิดเฉพาะ Geofence WebApp
+├── run_pc_demo.bat             # ⚡ ตัวเปิดโปรแกรมจำลองบน Windows (Double-click ใช้งานได้ทันที)
 ├── helmet_detection.py         # 🛵 โปรแกรมหลักสำหรับติดตั้งบน Raspberry Pi 4 บนรถมอเตอร์ไซค์จริง
 ├── hardware_retrofit_guide.md # 📖 คู่มือการดัดแปลงระบบไฟและกล่องคอนโทรลเลอร์รถมอเตอร์ไซค์ไฟฟ้าจริง
 ├── research_document.md       # 📑 เอกสารประกอบโครงงาน 7 บท (สถิติ, กฎหมาย, ทฤษฎี, GPS)
 ├── conversation_history.md    # 💬 บันทึกประวัติการพูดคุยและตอบข้อซักถามเชิงเทคนิค (ไฟล์นี้)
-├── requirements.txt            # รายการ Python dependencies (OpenCV, numpy, flask, socketio)
+├── requirements.txt            # รายการ Python dependencies (OpenCV, numpy, etc.)
 ├── README.md                  # เอกสารคู่มือแนะนำการติดตั้งและใช้งานภาพรวม
+├── .gitignore                 # ไฟล์ละเว้นไฟล์แคชและรูปภาพทดสอบขึ้น Git
 ├── arduino/
 │   └── motor_controller.ino    # โค้ด Arduino ควบคุมมอเตอร์และอ่านค่า GPS
-├── webapp/
-│   ├── server.py               # Flask & SocketIO Server (100% Offline)
-│   ├── geofence.py             # โมดูลคำนวณวงกลม Geofence & Haversine Distance
-│   └── templates/
-│       └── index.html          # หน้าจอ Web Dashboard แผนที่ Canvas และแจ้งเตือน
 ├── logs/                      # บันทึกประวัติการละเมิดพร้อมพิกัด GPS (JSON)
 └── captures/                  # ภาพถ่ายหลักฐานพร้อมลายน้ำพิกัด (JPG)
 ```
