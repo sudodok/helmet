@@ -1,4 +1,28 @@
+# Python bytecode
 __pycache__/
-*.pyc
-captures/
-logs/
+*.py[cod]
+*.class
+*.bak
+
+# Evidence captures (ignore photos, keep folder structure)
+captures/*
+!captures/.gitkeep
+!captures/all_captures/
+!captures/all_captures/.gitkeep
+!captures/safe_start/
+!captures/safe_start/.gitkeep
+!captures/mid_ride_violations/
+!captures/mid_ride_violations/.gitkeep
+!captures/no_helmet/
+!captures/no_helmet/.gitkeep
+!captures/manual_snapshots/
+!captures/manual_snapshots/.gitkeep
+
+# Logs (ignore log data, keep folder)
+logs/*
+!logs/.gitkeep
+
+# Environment
+.env
+venv/
+env/

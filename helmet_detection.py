@@ -36,13 +36,26 @@ class HelmetDetectionSystem:
         
         # สถานะหมวกนิรภัยล่าสุด
         self.last_helmet_status = True
+        self.engine_started = False
+        self.trip_start_time = None
+        self.has_captured_start = False
+        self.last_known_helmet_state = False
 
         # โหลด YOLO model
         self._load_model()
         
         # สร้างโฟลเดอร์สำหรับบันทึก
         os.makedirs('logs', exist_ok=True)
-        os.makedirs('captures', exist_ok=True)
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.captures_dir = os.path.join(self.base_dir, 'captures')
+        self.logs_dir = os.path.join(self.base_dir, 'logs')
+        os.makedirs(self.captures_dir, exist_ok=True)
+        os.makedirs(os.path.join(self.captures_dir, 'all_captures'), exist_ok=True) # โฟลเดอร์รวมทุกภาพ ไม่แยกหมวดหมู่
+        os.makedirs(os.path.join(self.captures_dir, 'safe_start'), exist_ok=True)
+        os.makedirs(os.path.join(self.captures_dir, 'mid_ride_violations'), exist_ok=True)
+        os.makedirs(os.path.join(self.captures_dir, 'no_helmet'), exist_ok=True)  # โฟลเดอร์ตรวจพบไม่ใส่หมวก (ไม่ใช่ถอดกลางคัน)
+        os.makedirs(os.path.join(self.captures_dir, 'manual_snapshots'), exist_ok=True)
+        os.makedirs(self.logs_dir, exist_ok=True)
 
         # เริ่มต้นส่ง Telemetry ไปยัง WebApp Server (localhost:5000)
         self._init_telemetry()
@@ -387,56 +400,105 @@ class HelmetDetectionSystem:
         )
     
     def draw_dashboard(self, frame):
-        """วาด Dashboard แสดงสถานะ"""
+        """วาด Dashboard แสดงสถานะ และแถบระบบจับเวลาสด (Live Stopwatch / Time Display)"""
         height, width = frame.shape[:2]
-        
-        # พื้นหลัง Dashboard
+        now = time.time()
+        now_time_str = datetime.now().strftime('%H:%M:%S')
+
+        # 1. คำนวณระบบจับเวลา (Live Stopwatch Calculation)
+        if self.engine_started and self.trip_start_time is not None:
+            trip_sec = int(now - self.trip_start_time)
+            hrs, rem = divmod(trip_sec, 3600)
+            mins, secs = divmod(rem, 60)
+            if hrs > 0:
+                stopwatch_display = f"{hrs:02d}:{mins:02d}:{secs:02d}"
+            else:
+                stopwatch_display = f"{mins:02d}:{secs:02d}"
+            timer_label = "RIDING"
+            timer_color = (0, 255, 200) # เขียวอมฟ้านีออน กำลังจับเวลาการขับขี่
+        else:
+            uptime_sec = int(now - self.start_time)
+            mins, secs = divmod(uptime_sec, 60)
+            stopwatch_display = f"{mins:02d}:{secs:02d}"
+            timer_label = "UPTIME"
+            timer_color = (180, 220, 255) # ฟ้าอ่อน กำลังจับเวลาระบบ
+
+        # 2. แถบสถานะด้านบน (Top Bar) แสดงเวลาและนาฬิกาจับเวลาชัดเจน
+        overlay_top = frame.copy()
+        cv2.rectangle(overlay_top, (0, 0), (width, 42), (12, 14, 20), -1)
+        cv2.addWeighted(overlay_top, 0.85, frame, 0.15, 0, frame)
+
+        # หัวข้อระบบ
+        cv2.putText(frame, "HELMET SAFETY SYSTEM", (15, 27),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 255), 2)
+
+        # นาฬิกาบอกเวลาปัจจุบัน (Live Clock)
+        time_x = max(240, width // 2 - 120)
+        cv2.putText(frame, f"TIME: {now_time_str}", (time_x, 27),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
+
+        # ระบบจับเวลาสด (Live Stopwatch) เด่นชัดด้วยสีนีออน
+        sw_x = max(420, width - 270)
+        cv2.putText(frame, f"STOPWATCH: {stopwatch_display}", (sw_x, 27),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.54, timer_color, 2)
+
+        # 3. กล่อง Dashboard แสดงสถิติและข้อมูลระบบ (ด้านซ้าย)
         overlay = frame.copy()
-        cv2.rectangle(overlay, (10, 10), (370, 240), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-        
-        # หัวข้อ
+        cv2.rectangle(overlay, (10, 52), (380, 280), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.72, frame, 0.28, 0, frame)
+
         cv2.putText(
-            frame, "Helmet Detection System", (20, 38),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2
+            frame, "System Telemetry / Status", (20, 75),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 255, 255), 2
         )
-        cv2.line(frame, (20, 48), (360, 48), (0, 255, 255), 1)
-        
-        # ข้อมูล
-        elapsed = time.time() - self.start_time
+        cv2.line(frame, (20, 84), (370, 84), (0, 255, 255), 1)
+
+        elapsed = now - self.start_time
         fps = self.frame_count / elapsed if elapsed > 0 else 0
-        
+
+        engine_status = "STARTED (READY)" if self.engine_started else "LOCKED (OFF)"
+        mode_name = "YOLO" if self.model_loaded else "Demo"
         info_lines = [
-            f"FPS: {fps:.1f}",
-            f"Frame: {self.frame_count}",
-            f"Detections: {len(self.detection_history)}",
-            f"Violations: {len(self.alert_log)}",
-            f"Mode: {'YOLO' if self.model_loaded else 'Demo'}",
-            f"Time: {datetime.now().strftime('%H:%M:%S')}",
-            f"GPS Lat: {self.current_gps['lat']:.5f}",
-            f"GPS Lon: {self.current_gps['lon']:.5f}",
-            f"Speed: {self.current_gps['speed']:.1f} km/h (Sats: {self.current_gps['satellites']})"
+            (f"FPS: {fps:.1f} | Frame: {self.frame_count}", (200, 200, 200)),
+            (f"Clock Time: {now_time_str}", (255, 255, 255)),
+            (f"Stopwatch ({timer_label}): {stopwatch_display}", timer_color),
+            (f"Engine: {engine_status}", (0, 255, 0) if self.engine_started else (0, 0, 255)),
+            (f"Speed: {self.current_gps['speed']:.1f} km/h (Sats: {self.current_gps['satellites']})", (100, 240, 255)),
+            (f"GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f}", (200, 200, 200)),
+            (f"Violations: {len(self.alert_log)} | Mode: {mode_name}", (255, 180, 0))
         ]
-        
-        for i, line in enumerate(info_lines):
+
+        for i, (line, col) in enumerate(info_lines):
             cv2.putText(
-                frame, line, (20, 68 + i * 19),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1
+                frame, line, (20, 108 + i * 22),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.46, col, 1
             )
-        
+
         return frame
     
     def process_violation(self, frame, detections):
-        """จัดการเมื่อพบการละเมิด"""
+        """บันทึกข้อมูลและภาพถ่ายหลักฐานการละเมิด (รองรับการตรวจจับถอดหมวกกลางคัน)"""
         timestamp = datetime.now()
-        
+        speed = self.current_gps['speed']
+        now = time.time()
+
+        is_mid_ride = self.engine_started or (speed > 3.0)
+        duration_sec = int(now - self.trip_start_time) if self.trip_start_time else 0
+        mins, secs = divmod(duration_sec, 60)
+        trip_str = f"{mins:02d}m {secs:02d}s"
+
+        violation_type = "MID_RIDE_HELMET_REMOVAL" if is_mid_ride else "NO_HELMET_VIOLATION"
+        file_prefix = "mid_ride_violation" if is_mid_ride else "violation"
+
         violation = {
+            'type': violation_type,
             'timestamp': timestamp.isoformat(),
             'frame_number': self.frame_count,
+            'trip_duration': trip_str if is_mid_ride else "00m 00s",
             'gps': {
                 'latitude': self.current_gps['lat'],
                 'longitude': self.current_gps['lon'],
-                'speed_kmh': self.current_gps['speed'],
+                'speed_kmh': speed,
                 'satellites': self.current_gps['satellites'],
                 'module': self.config.get('gps', {}).get('module', 'ATGM336H / NEO-M8N')
             },
@@ -446,33 +508,72 @@ class HelmetDetectionSystem:
                 'box': d['box']
             } for d in detections if d['class'] == 'no_helmet']
         }
-        
+
         self.alert_log.append(violation)
-        
-        # บันทึกภาพพร้อมประทับลายน้ำพิกัด GPS
+
+        # บันทึกภาพพร้อมประทับลายน้ำพิกัด GPS และวาดกรอบตรวจจับ
         if self.config['alert']['capture_violation']:
-            filename = f"captures/violation_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
-            annotated_frame = frame.copy()
+            # แยกโฟลเดอร์ระหว่างถอดหมวกกลางคัน (mid_ride_violations) กับตรวจพบไม่ใส่หมวกตั้งแต่แรก/ขณะจอด (no_helmet)
+            target_sub = 'mid_ride_violations' if is_mid_ride else 'no_helmet'
+            prefix = 'mid_ride_violation' if is_mid_ride else 'no_helmet'
+            folder = os.path.join(self.captures_dir, target_sub)
+            os.makedirs(folder, exist_ok=True)
+            filename = os.path.join(folder, f"{prefix}_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
+            annotated_frame, _ = self.draw_detections(frame.copy(), detections)
             h, w = annotated_frame.shape[:2]
-            
-            # แถบดำด้านล่างภาพสำหรับลายน้ำพิกัด
-            cv2.rectangle(annotated_frame, (0, h - 35), (w, h), (0, 0, 0), -1)
-            watermark_text = f"E-MOTO ALERT | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | SPEED: {self.current_gps['speed']:.1f} km/h | {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
-            cv2.putText(annotated_frame, watermark_text, (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-            
+
+            # แถบดำด้านล่างภาพสำหรับลายน้ำพิกัดและเวลาจับเวลา
+            cv2.rectangle(annotated_frame, (0, h - 45), (w, h), (15, 15, 15), -1)
+            cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), (0, 0, 255), -1)
+
+            if is_mid_ride:
+                watermark_text = f"[ALERT] MID-RIDE HELMET REMOVAL | STOPWATCH: {trip_str} | SPEED: {speed:.1f} km/h | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+            else:
+                uptime_sec = int(now - self.start_time)
+                u_m, u_s = divmod(uptime_sec, 60)
+                up_str = f"{u_m:02d}m {u_s:02d}s"
+                watermark_text = f"[ALERT] NO HELMET DETECTED | STOPWATCH: {up_str} | SPEED: {speed:.1f} km/h | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+
+            cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
+
             cv2.imwrite(filename, annotated_frame)
+            all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
+            cv2.imwrite(all_path, annotated_frame)
+            root_path = os.path.join(self.captures_dir, os.path.basename(filename))
+            if os.path.abspath(filename) != os.path.abspath(root_path):
+                cv2.imwrite(root_path, annotated_frame)
             violation['image'] = filename
-            print(f"[ALERT] บันทึกภาพการละเมิดพร้อมพิกัด GPS: {filename}")
-        
+            print(f"[ALERT] 🚨 บันทึกภาพหลักฐาน ({violation_type}): {filename}")
+
         # ส่งสัญญาณจำกัดความเร็ว
         if self.config['electric_motorcycle']['auto_limit_speed']:
             self._send_speed_limit_command()
-        
+
         # บันทึก log
         self._save_log(violation)
-        
+
         return violation
-    
+
+    def capture_start_verified(self, frame, detections):
+        """บันทึกภาพยืนยันการสวมหมวกและสตาร์ทรถสำเร็จ (Start Verified)"""
+        timestamp = datetime.now()
+        filename = os.path.join(self.captures_dir, 'safe_start', f"start_verified_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
+        annotated_frame, _ = self.draw_detections(frame.copy(), detections)
+        h, w = annotated_frame.shape[:2]
+
+        cv2.rectangle(annotated_frame, (0, h - 45), (w, h), (15, 15, 15), -1)
+        cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), (0, 200, 0), -1)
+        watermark_text = f"[PASS] SAFE START | HELMET VERIFIED | STOPWATCH: 00m 00s | SPEED: {self.current_gps['speed']:.1f} km/h | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+        cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
+
+        cv2.imwrite(filename, annotated_frame)
+        all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
+        cv2.imwrite(all_path, annotated_frame)
+        root_path = os.path.join(self.captures_dir, os.path.basename(filename))
+        if os.path.abspath(filename) != os.path.abspath(root_path):
+            cv2.imwrite(root_path, annotated_frame)
+        print(f"[SAFE START] 🟢 บันทึกภาพยืนยันการสวมหมวกออกรถ: {filename}")
+
     def _send_speed_limit_command(self):
         """ส่งคำสั่งจำกัดความเร็วไปยังตัวควบคุมมอเตอร์"""
         speed_limit = self.config['electric_motorcycle']['speed_limit_no_helmet']
@@ -559,8 +660,14 @@ class HelmetDetectionSystem:
                 # วาด Dashboard
                 frame = self.draw_dashboard(frame)
                 
-                # จัดการการละเมิด
-                if violation:
+                # จัดการบันทึกภาพตามเหตุการณ์ (Start Verified vs Violation)
+                if not violation:
+                    if not self.has_captured_start:
+                        self.has_captured_start = True
+                        self.engine_started = True
+                        self.trip_start_time = time.time()
+                        self.capture_start_verified(frame, detections)
+                else:
                     current_time = time.time()
                     cooldown = self.config['alert']['cooldown']
                     
@@ -592,9 +699,29 @@ class HelmetDetectionSystem:
                 if key == ord('q'):
                     break
                 elif key == ord('s'):
-                    filename = f"captures/manual_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                    cv2.imwrite(filename, frame)
-                    print(f"[SAVE] บันทึกภาพ: {filename}")
+                    timestamp = datetime.now()
+                    now = time.time()
+                    dur_sec = int(now - self.trip_start_time) if (self.engine_started and self.trip_start_time) else int(now - self.start_time)
+                    m_mins, m_secs = divmod(dur_sec, 60)
+                    dur_str = f"{m_mins:02d}m {m_secs:02d}s"
+                    status_text = "HELMET OK" if self.last_helmet_status else "NO HELMET"
+                    banner_col = (0, 200, 0) if self.last_helmet_status else (0, 0, 255)
+
+                    filename = os.path.join(self.captures_dir, 'manual_snapshots', f"manual_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
+                    annotated_frame, _ = self.draw_detections(frame.copy(), detections)
+                    h, w = annotated_frame.shape[:2]
+                    cv2.rectangle(annotated_frame, (0, h - 45), (w, h), (15, 15, 15), -1)
+                    cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), banner_col, -1)
+                    watermark_text = f"MANUAL SNAPSHOT | {status_text} | STOPWATCH: {dur_str} | SPEED: {self.current_gps['speed']:.1f} km/h | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                    cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
+
+                    cv2.imwrite(filename, annotated_frame)
+                    all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
+                    cv2.imwrite(all_path, annotated_frame)
+                    root_path = os.path.join(self.captures_dir, os.path.basename(filename))
+                    if os.path.abspath(filename) != os.path.abspath(root_path):
+                        cv2.imwrite(root_path, annotated_frame)
+                    print(f"[SAVE] 📸 บันทึกภาพ Snapshot ({status_text}): {filename}")
                 elif key == ord('r'):
                     self.detection_history.clear()
                     self.alert_log.clear()

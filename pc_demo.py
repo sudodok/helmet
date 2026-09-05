@@ -21,6 +21,7 @@ import os
 import json
 import threading
 from datetime import datetime
+from collections import deque
 
 # รองรับเสียงเตือนบน Windows
 try:
@@ -32,9 +33,17 @@ except ImportError:
 
 class PCHelmetSimulator:
     def __init__(self):
-        # 1. การตั้งค่าโฟลเดอร์
-        os.makedirs('captures', exist_ok=True)
-        os.makedirs('logs', exist_ok=True)
+        # 1. การตั้งค่าโฟลเดอร์ (Absolute Paths อิงตำแหน่งโปรเจกต์เสมอ)
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.captures_dir = os.path.join(self.base_dir, 'captures')
+        self.logs_dir = os.path.join(self.base_dir, 'logs')
+        os.makedirs(self.captures_dir, exist_ok=True)
+        os.makedirs(os.path.join(self.captures_dir, 'all_captures'), exist_ok=True) # โฟลเดอร์รวมรูปทุกเหตุการณ์ไว้ที่เดียว ไม่แยกหมวดหมู่
+        os.makedirs(os.path.join(self.captures_dir, 'safe_start'), exist_ok=True)
+        os.makedirs(os.path.join(self.captures_dir, 'mid_ride_violations'), exist_ok=True)
+        os.makedirs(os.path.join(self.captures_dir, 'no_helmet'), exist_ok=True) # โฟลเดอร์ตรวจพบไม่สวมหมวก (ไม่ใช่ถอดกลางคัน)
+        os.makedirs(os.path.join(self.captures_dir, 'manual_snapshots'), exist_ok=True)
+        os.makedirs(self.logs_dir, exist_ok=True)
 
         # 2. ระบบฟิสิกส์และความเร็วรถมอเตอร์ไซค์ไฟฟ้า
         self.current_speed = 0.0          # ความเร็วปัจจุบัน (km/h)
@@ -70,6 +79,31 @@ class PCHelmetSimulator:
         # โหลด Haar Cascade สำหรับตรวจจับใบหน้าในโหมดทดสอบ
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        self.face_cascade_alt = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml')
+
+        # ระบบลดอาการสั่นของกรอบ (Exponential Moving Average Box Smoothing)
+        self.prev_person_box = None
+        self.prev_head_box = None
+        # ระบบกรองการกระพริบของสถานะ (7-Frame Temporal Majority Filter)
+        self.status_history = deque(maxlen=7)
+
+        # ระบบตรวจจับการเดินทางและถอดหมวกกลางคัน (Smart Event Capture & Trip Tracking)
+        self.trip_start_time = None          # เวลาที่สตาร์ทรถสำเร็จ
+        self.has_captured_start = False      # ป้องกันการบันทึกภาพตอนสตาร์ทซ้ำซ้อน
+        self.last_known_helmet_state = False # สถานะหมวกในเฟรมก่อนหน้า เพื่อตรวจจับจังหวะ "ถอดหมวก" 
+
+        # โหลดโมเดล YOLOv8 สำหรับตรวจจับบุคคล (Person) และหมวกนิรภัย
+        self.yolo_model = None
+        try:
+            from ultralytics import YOLO
+            model_path = os.path.join(os.path.dirname(__file__), 'yolov8n.pt')
+            if not os.path.exists(model_path):
+                model_path = 'yolov8n.pt'
+            if os.path.exists(model_path):
+                self.yolo_model = YOLO(model_path)
+                print('[INFO] โหลด YOLOv8n สำเร็จ (เปิดใช้งานระบบตรวจจับ Person & Vehicle)')
+        except Exception as e:
+            print(f'[INFO] ใช้ระบบตรวจจับ Cascade / Fallback: {e}')
 
         # สถิติ
         self.frame_count = 0
@@ -77,6 +111,8 @@ class PCHelmetSimulator:
         self.violations_log = []
         self.last_violation_time = 0
         self.violation_cooldown = 4.0     # วินาที
+        self.last_no_helmet_time = 0      # เวลาที่บันทึกภาพไม่สวมหมวกครั้งล่าสุด
+        self.no_helmet_cooldown = 5.0     # หน่วงเวลาถ่ายภาพไม่สวมหมวกซ้ำ (วินาที)
         self.is_violation_active = False
 
         # เริ่มต้นกล้อง
@@ -144,8 +180,11 @@ class PCHelmetSimulator:
         if not self.use_synthetic_frame and self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
             if ret:
-                # กลับด้านภาพเหมือนกระจกเงา (Mirror View)
-                return cv2.flip(frame, 1)
+                # กลับด้านภาพเหมือนกระจกเงา (Mirror View) และปรับขนาดให้คงที่ 1280x720 เพื่อความคมชัด
+                frame = cv2.flip(frame, 1)
+                if frame.shape[1] != 1280 or frame.shape[0] != 720:
+                    frame = cv2.resize(frame, (1280, 720))
+                return frame
         
         # ถ้าไม่มีกล้อง สร้างภาพจำลองแบบ High-Tech Studio
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -153,8 +192,11 @@ class PCHelmetSimulator:
         for y in range(720):
             frame[y, :] = (int(25 + y * 0.05), int(20 + y * 0.03), int(30 + y * 0.08))
 
-        # วาดรูปจำลองศีรษะผู้ขับขี่
+        # วาดรูปจำลองตัวคนและศีรษะผู้ขับขี่ (Rider Silhouette)
         cx, cy = 640, 380
+        # วาดลำตัวผู้ขับขี่ (Torso & Shoulders)
+        cv2.ellipse(frame, (cx, cy + 220), (220, 160), 0, 0, 360, (55, 60, 75), -1)
+        cv2.rectangle(frame, (cx - 180, cy + 180), (cx + 180, 720), (45, 50, 65), -1)
         if self.forced_helmet_state:
             # วาดหมวกกันน็อคแบบเต็มใบ (สีเขียว/น้ำเงิน)
             cv2.ellipse(frame, (cx, cy - 40), (140, 170), 0, 0, 360, (50, 180, 50), -1)
@@ -171,52 +213,171 @@ class PCHelmetSimulator:
 
         return frame
 
+    def _smooth_box(self, new_box, prev_box, alpha=0.65):
+        """ช่วยลดอาการสั่นของกรอบตรวจจับ (Exponential Moving Average Smoothing)"""
+        if prev_box is None:
+            return new_box
+        return [
+            int(alpha * n + (1 - alpha) * p)
+            for n, p in zip(new_box, prev_box)
+        ]
+
     def analyze_frame(self, frame):
-        """วิเคราะห์ภาพว่าสวมหมวกหรือไม่"""
-        # 1. หากเปิด Manual Override ใช้ค่าที่กำหนดโดยตรง (สะดวกในการพรีเซนต์)
-        if self.manual_override:
-            has_helmet = self.forced_helmet_state
-            detections = [{
-                'class': 'helmet' if has_helmet else 'no_helmet',
-                'confidence': 0.96,
-                'box': [490, 200, 300, 350]
-            }]
-            return detections, not has_helmet
-
-        # 2. ตรวจจับอัตโนมัติผ่าน Haar Cascade
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self.face_cascade.detectMultiScale(
-            gray, scaleFactor=1.2, minNeighbors=5, minSize=(90, 90)
-        )
-
+        """วิเคราะห์ภาพตรวจจับคน (Person) และหมวกนิรภัย (Helmet) แบบนิ่ง เสถียร ไม่กระพริบ และติดตามตัวตลอดเวลา"""
         detections = []
-        violation = False
+        h_frame, w_frame = frame.shape[:2]
 
-        if len(faces) == 0:
-            # หากตรวจไม่พบใบหน้า ให้ถือว่าปลอดภัยหรือสวมหมวกปิดหน้า
-            detections.append({'class': 'helmet', 'confidence': 0.85, 'box': [500, 200, 280, 320]})
-            violation = False
-        else:
-            for (x, y, w, h) in faces:
-                # วิเคราะห์บริเวณเหนือศีรษะ (Headwear region)
-                roi_y = max(0, y - int(h * 0.75))
-                head_roi = gray[roi_y:y, x:x+w]
+        person_box = None
+        head_box = None
+        has_helmet_detected = False
 
-                has_helmet = False
-                if head_roi.size > 0:
-                    edges = cv2.Canny(head_roi, 60, 160)
-                    edge_density = np.sum(edges > 0) / head_roi.size
-                    std_dev = np.std(head_roi)
-                    # หมวกกันน็อคมักมีขอบโค้งหนาแน่นและสีเรียบ/สะท้อนแสง
-                    if edge_density > 0.12 or std_dev < 35:
-                        has_helmet = True
+        # 1. ค้นหาตำแหน่งร่างกายคน (Person Detection)
+        if not self.use_synthetic_frame:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                if has_helmet:
-                    detections.append({'class': 'helmet', 'confidence': 0.90, 'box': [x, roi_y, w, y - roi_y + h]})
+            # ค้นหาด้วย YOLOv8n
+            if self.yolo_model is not None:
+                try:
+                    results = self.yolo_model(frame, imgsz=480, verbose=False, conf=0.35)[0]
+                    best_person_area = 0
+                    for box in results.boxes:
+                        cls_id = int(box.cls[0])
+                        conf = float(box.conf[0])
+                        xyxy = box.xyxy[0].cpu().numpy().astype(int)
+                        bx, by, bx2, by2 = xyxy
+                        bw, bh = max(10, bx2 - bx), max(10, by2 - by)
+
+                        if cls_id == 0:  # Person
+                            area = bw * bh
+                            if area > best_person_area:
+                                best_person_area = area
+                                person_box = [max(0, bx), max(0, by), min(w_frame - bx, bw), min(h_frame - by, bh), conf]
+                        elif cls_id == 3:  # Motorcycle
+                            detections.append({
+                                'class': 'motorcycle',
+                                'confidence': conf,
+                                'box': [bx, by, bw, bh]
+                            })
+                except Exception:
+                    pass
+
+            # 2. ค้นหาตำแหน่งและประเมินหมวกนิรภัย
+            if person_box is not None:
+                # ปรับกรอบคนให้นุ่มนวล ลดอาการกระตุก (Smooth Person Box)
+                raw_p_coords = person_box[:4]
+                p_conf = person_box[4]
+                smoothed_p = self._smooth_box(raw_p_coords, self.prev_person_box, alpha=0.60)
+                self.prev_person_box = smoothed_p
+                bx, by, bw, bh = smoothed_p
+
+                # ค้นหาใบหน้าเฉพาะช่วงครึ่งบนของตัวคน (Upper 60% of body)
+                upper_h = int(bh * 0.60)
+                upper_roi = gray[by:by + upper_h, bx:bx + bw]
+                faces = []
+                if upper_roi.size > 0:
+                    faces = self.face_cascade_alt.detectMultiScale(
+                        upper_roi, scaleFactor=1.12, minNeighbors=4, minSize=(50, 50)
+                    )
+                    if len(faces) == 0:
+                        faces = self.face_cascade.detectMultiScale(
+                            upper_roi, scaleFactor=1.15, minNeighbors=3, minSize=(50, 50)
+                        )
+
+                # กำหนดขนาดศีรษะตามสัดส่วนร่างกายมนุษย์ที่คงที่ (Human Head Proportional Ratio)
+                # ศีรษะคนปกติกว้างประมาณ 40-42% ของความกว้างช่วงไหล่ และอัตราส่วน กว้าง:สูง ประมาณ 1:1.18
+                prop_w = max(50, int(bw * 0.42))
+                prop_h = int(prop_w * 1.18)
+
+                if len(faces) > 0:
+                    # พบใบหน้า: ใช้ตำแหน่งใบหน้ากำหนดจุดศูนย์กลางศีรษะ
+                    fx, fy, fw, fh = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)[0]
+                    center_x = bx + fx + fw // 2
+                    center_y = by + fy + int(fh * 0.35)
+
+                    # คำนวณขนาดที่กลมกลืน ไม่ให้กระโดดเล็กใหญ่เกินขนาดสัดส่วนตัว (Blended Head Dimension)
+                    face_w = int(fw * 1.45)
+                    face_h = int(fh * 1.65)
+                    head_w = int(0.55 * face_w + 0.45 * prop_w)
+                    head_h = int(0.55 * face_h + 0.45 * prop_h)
+
+                    head_left = max(0, center_x - head_w // 2)
+                    head_top = max(0, center_y - int(head_h * 0.55))
+                    raw_head = [head_left, head_top, head_w, head_h]
+
+                    # ตรวจสอบเหนือหน้าผากว่ามีหมวกกันน็อคครอบอยู่หรือไม่
+                    forehead_top = max(0, by + fy - int(fh * 0.45))
+                    forehead_roi = frame[forehead_top:by + fy, bx + fx:bx + fx + fw]
+                    if forehead_roi.size > 0:
+                        hsv = cv2.cvtColor(forehead_roi, cv2.COLOR_BGR2HSV)
+                        is_helmet_material = np.mean(hsv[:, :, 1] > 100) > 0.40 or np.mean(hsv[:, :, 2] > 200) > 0.45
+                        has_helmet_detected = is_helmet_material
+                    else:
+                        has_helmet_detected = False
                 else:
-                    detections.append({'class': 'no_helmet', 'confidence': 0.92, 'box': [x, y, w, h]})
-                    violation = True
+                    # ไม่พบใบหน้า: ล็อคขนาดและตำแหน่งให้อยู่ตรงกลางส่วนบนของลำตัวอย่างคงที่และนิ่งสนิท
+                    center_x = bx + bw // 2
+                    center_y = by + int(prop_h * 0.48)
 
+                    head_w = prop_w
+                    head_h = prop_h
+                    head_left = max(0, center_x - head_w // 2)
+                    head_top = max(0, center_y - int(head_h * 0.55))
+                    raw_head = [head_left, head_top, head_w, head_h]
+
+                    # ตรวจสอบว่าศีรษะมีหมวกครอบหรือไม่
+                    head_roi = frame[head_top:head_top + head_h, head_left:head_left + head_w]
+                    if head_roi.size > 0:
+                        hsv = cv2.cvtColor(head_roi, cv2.COLOR_BGR2HSV)
+                        if np.mean(hsv[:, :, 1] > 110) > 0.35 or np.mean(hsv[:, :, 2] > 210) > 0.45:
+                            has_helmet_detected = True
+                        else:
+                            has_helmet_detected = False
+                    else:
+                        has_helmet_detected = False
+
+                # ปรับกรอบศีรษะให้นุ่มนวล (Smooth Head Box)
+                smoothed_head = self._smooth_box(raw_head, self.prev_head_box, alpha=0.60)
+                self.prev_head_box = smoothed_head
+                head_box = smoothed_head
+                person_box = [bx, by, bw, bh, p_conf]
+
+        # 3. โหมดภาพจำลอง (Synthetic Mode)
+        if person_box is None:
+            if self.use_synthetic_frame:
+                cx, cy = 640, 380
+                person_box = [cx - 220, cy - 140, 440, 520, 0.95]
+                head_box = [cx - 130, cy - 110, 260, 240]
+                has_helmet_detected = self.forced_helmet_state
+            else:
+                return detections, False
+
+        # 4. ใส่ผลลัพธ์กรอบคน (PERSON)
+        px, py, pw, ph, p_conf = person_box
+        detections.append({
+            'class': 'person',
+            'confidence': float(p_conf),
+            'box': [int(px), int(py), int(pw), int(ph)]
+        })
+
+        # 5. กรองสถานะหมวกด้วย 7-Frame Majority Filter ป้องกันการกระพริบสลับสี
+        if self.manual_override:
+            # โหมดจำลอง: ล็อคสถานะตามที่ผู้ใช้กด H
+            final_helmet = self.forced_helmet_state
+            conf_helmet = 0.97
+        else:
+            self.status_history.append(has_helmet_detected)
+            # ต้องมีคะแนนเสียงเกินครึ่งของ 7 เฟรมล่าสุดถึงจะเปลี่ยนสถานะ
+            final_helmet = (sum(self.status_history) / len(self.status_history)) >= 0.5
+            conf_helmet = 0.93 if final_helmet else 0.91
+
+        hx, hy, hw, hh = head_box
+        detections.append({
+            'class': 'helmet' if final_helmet else 'no_helmet',
+            'confidence': float(conf_helmet),
+            'box': [int(hx), int(hy), int(hw), int(hh)]
+        })
+
+        violation = not final_helmet
         return detections, violation
 
     def update_physics(self, is_violation):
@@ -234,6 +395,8 @@ class PCHelmetSimulator:
                 self.virtual_led_green = False
                 self.virtual_led_red = True
                 self.virtual_buzzer_active = True
+                self.has_captured_start = False    # รีเซ็ตพร้อมถ่ายภาพยืนยันการสตาร์ทครั้งใหม่
+                self.trip_start_time = None
                 return
             else:
                 # ตรวจพบการสวมหมวก -> สตาร์ทเครื่องติด พร้อมขับขี่ (READY)
@@ -285,101 +448,297 @@ class PCHelmetSimulator:
         self.gps_lat += speed_deg_factor * 0.04
         self.gps_lon += speed_deg_factor * 0.08
 
-    def process_violation(self, frame, detections):
-        """บันทึกข้อมูลและภาพถ่ายหลักฐานการละเมิดพร้อมลายน้ำพิกัด"""
-        now = time.time()
-        if now - self.last_violation_time < self.violation_cooldown:
-            return
-
-        self.last_violation_time = now
-        timestamp = datetime.now()
-
-        # สร้างภาพถ่ายหลักฐานพร้อมแถบลายน้ำพิกัด GPS
+    def _save_evidence_image(self, frame, detections, filename, watermark_text, banner_color=(0, 0, 255)):
+        """วาดกรอบตรวจจับและแถบลายน้ำลงบนภาพ แล้วบันทึกลงโฟลเดอร์ captures/"""
         evidence_frame = frame.copy()
         h, w = evidence_frame.shape[:2]
-        
-        # วาดแถบดำคาดด้านล่างสำหรับลายน้ำ
-        cv2.rectangle(evidence_frame, (0, h - 48), (w, h), (15, 15, 15), -1)
-        cv2.rectangle(evidence_frame, (0, h - 48), (w, h - 46), (0, 0, 255), -1)
 
-        watermark_text = (
-            f"EV-ALERT | NO HELMET | SPEED: {self.current_speed:.1f} KM/H | "
+        # 1. วาดกรอบตรวจจับ (Bounding Boxes: Person, Helmet, Motorcycle)
+        for det in detections:
+            cls = det['class']
+            conf = float(det['confidence'])
+            bx, by, bw, bh = [int(v) for v in det['box']]
+
+            if cls == 'helmet':
+                color = (0, 230, 0)      # สีเขียวสด
+                label = f"HELMET OK ({int(conf*100)}%)"
+                text_color = (255, 255, 255)
+                box_thickness = 3
+            elif cls == 'no_helmet':
+                color = (0, 0, 255)      # สีแดงสด
+                label = f"NO HELMET VIOLATION ({int(conf*100)}%)"
+                text_color = (255, 255, 255)
+                box_thickness = 3
+            elif cls == 'person':
+                color = (255, 215, 0)    # สีเหลืองทอง
+                label = f"PERSON ({int(conf*100)}%)"
+                text_color = (20, 20, 20)
+                box_thickness = 2
+            elif cls == 'motorcycle':
+                color = (255, 140, 0)    # สีส้ม
+                label = f"MOTORCYCLE ({int(conf*100)}%)"
+                text_color = (255, 255, 255)
+                box_thickness = 2
+            else:
+                color = (200, 200, 200)
+                label = f"{cls.upper()} ({int(conf*100)}%)"
+                text_color = (0, 0, 0)
+                box_thickness = 2
+
+            cv2.rectangle(evidence_frame, (bx, by), (bx + bw, by + bh), color, box_thickness)
+
+            # ป้ายชื่อหัวมุม
+            tw = len(label) * 9 + 10
+            lbl_y1 = max(0, by - 26)
+            lbl_y2 = max(26, by)
+            cv2.rectangle(evidence_frame, (bx, lbl_y1), (bx + tw, lbl_y2), color, -1)
+            cv2.putText(evidence_frame, label, (bx + 5, max(18, by - 8)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.48, text_color, 2)
+
+        # 2. วาดแถบดำคาดด้านล่างสำหรับลายน้ำพิกัด GPS และหลักฐาน
+        cv2.rectangle(evidence_frame, (0, h - 48), (w, h), (15, 15, 15), -1)
+        cv2.rectangle(evidence_frame, (0, h - 48), (w, h - 46), banner_color, -1)
+
+        cv2.putText(evidence_frame, watermark_text, (16, h - 18),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1)
+
+        # 1. บันทึกลงโฟลเดอร์ตามหมวดหมู่ (เช่น safe_start, mid_ride_violations)
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        cv2.imwrite(filename, evidence_frame)
+
+        # 2. บันทึกลงโฟลเดอร์รวม 'captures/all_captures/' (โฟลเดอร์รวมทุกภาพ ไม่ต้องแยกอะไร ดูได้ครบในที่เดียว)
+        all_folder_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
+        os.makedirs(os.path.dirname(all_folder_path), exist_ok=True)
+        cv2.imwrite(all_folder_path, evidence_frame)
+
+        # 3. บันทึกลงโฟลเดอร์หลัก 'captures/' โดยตรง (เปิดโฟลเดอร์มาเห็นภาพทั้งหมดทันที)
+        root_path = os.path.join(self.captures_dir, os.path.basename(filename))
+        if os.path.abspath(filename) != os.path.abspath(root_path):
+            cv2.imwrite(root_path, evidence_frame)
+
+    def handle_capture_events(self, frame, detections, is_violation):
+        """บันทึกภาพตามเหตุการณ์จริง: ทั้งตอนสวมหมวกออกรถ และตอนถอดหมวกกลางคัน"""
+        now = time.time()
+        timestamp = datetime.now()
+
+        # คำนวณเวลาจับเวลาระบบ (System Uptime Stopwatch)
+        sys_uptime_sec = int(now - self.start_time)
+        u_mins, u_secs = divmod(sys_uptime_sec, 60)
+        sys_stopwatch_str = f"{u_mins:02d}m {u_secs:02d}s"
+
+        # 🟢 EVENT 1: สวมหมวกปลดล็อคสตาร์ทรถสำเร็จ (Start Verified)
+        if not is_violation and self.engine_started:
+            if not self.has_captured_start:
+                self.has_captured_start = True
+                self.trip_start_time = now
+                filename = os.path.join(self.captures_dir, 'safe_start', f"start_verified_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
+                watermark = (
+                    f"[PASS] SAFE START | HELMET VERIFIED | STOPWATCH: 00m 00s | "
+                    f"SPEED: {self.current_speed:.1f} KM/H | GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
+                    f"TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                self._save_evidence_image(frame, detections, filename, watermark, banner_color=(0, 200, 0))
+                print(f"[SAFE START] 🟢 บันทึกภาพยืนยันการสวมหมวกออกรถ: {filename}")
+
+        # 🔴 EVENT 2: ถอดหมวกกลางคันขณะขับขี่ (Mid-Ride Helmet Removal Violation)
+        if is_violation and self.engine_started:
+            just_removed = (self.last_known_helmet_state == True)
+            driving_without_helmet = (self.current_speed > 3.0)
+
+            if (just_removed or driving_without_helmet) and (now - self.last_violation_time > self.violation_cooldown):
+                self.last_violation_time = now
+
+                # คำนวณระยะเวลาตั้งแต่เริ่มสตาร์ทขับขี่ (Trip Stopwatch)
+                duration_sec = int(now - self.trip_start_time) if self.trip_start_time else 0
+                mins, secs = divmod(duration_sec, 60)
+                trip_str = f"{mins:02d}m {secs:02d}s"
+
+                filename = os.path.join(self.captures_dir, 'mid_ride_violations', f"mid_ride_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
+                watermark = (
+                    f"[ALERT] MID-RIDE HELMET REMOVAL | STOPWATCH: {trip_str} | "
+                    f"SPEED: {self.current_speed:.1f} KM/H | GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
+                    f"TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                self._save_evidence_image(frame, detections, filename, watermark, banner_color=(0, 0, 255))
+                self._play_buzzer_sound()
+                print(f"[MID-RIDE VIOLATION] 🚨 ตรวจพบถอดหมวกกลางคัน! ความเร็ว {self.current_speed:.1f} km/h, ขับขี่มาแล้ว {trip_str}, บันทึกภาพ: {filename}")
+
+                # บันทึก JSON log
+                violation_data = {
+                    'type': 'MID_RIDE_HELMET_REMOVAL',
+                    'timestamp': timestamp.isoformat(),
+                    'speed_kmh': round(self.current_speed, 1),
+                    'trip_duration': trip_str,
+                    'gps': {
+                        'latitude': round(self.gps_lat, 6),
+                        'longitude': round(self.gps_lon, 6),
+                        'satellites': self.gps_satellites
+                    },
+                    'image_file': filename
+                }
+                self.violations_log.append(violation_data)
+                log_file = os.path.join(self.logs_dir, f"violations_{timestamp.strftime('%Y%m%d')}.json")
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.violations_log, f, indent=2, ensure_ascii=False)
+
+        # ⚠️ EVENT 3: ตรวจพบไม่สวมหมวก (ไม่ใช่ตอนถอดหมวกกลางคัน เช่น ขณะจอด / ก่อนออกรถ / พยายามสตาร์ท)
+        if is_violation and not self.engine_started:
+            if (now - self.last_no_helmet_time > self.no_helmet_cooldown):
+                self.last_no_helmet_time = now
+                filename = os.path.join(self.captures_dir, 'no_helmet', f"no_helmet_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
+                watermark = (
+                    f"[ALERT] NO HELMET DETECTED | STOPWATCH: {sys_stopwatch_str} | ENGINE LOCKED | "
+                    f"SPEED: {self.current_speed:.1f} KM/H | GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
+                    f"TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                self._save_evidence_image(frame, detections, filename, watermark, banner_color=(0, 0, 255))
+                self._play_buzzer_sound()
+                print(f"[NO HELMET] ⚠️ ตรวจพบไม่สวมหมวก (ก่อนออกรถ/ขณะจอด)! จับเวลา: {sys_stopwatch_str}, บันทึกภาพ: {filename}")
+
+                # บันทึก JSON log
+                violation_data = {
+                    'type': 'INITIAL_NO_HELMET',
+                    'timestamp': timestamp.isoformat(),
+                    'speed_kmh': round(self.current_speed, 1),
+                    'stopwatch_duration': sys_stopwatch_str,
+                    'gps': {
+                        'latitude': round(self.gps_lat, 6),
+                        'longitude': round(self.gps_lon, 6),
+                        'satellites': self.gps_satellites
+                    },
+                    'image_file': filename
+                }
+                self.violations_log.append(violation_data)
+                log_file = os.path.join(self.logs_dir, f"violations_{timestamp.strftime('%Y%m%d')}.json")
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.violations_log, f, indent=2, ensure_ascii=False)
+
+        # อัปเดตสถานะหมวกเฟรมล่าสุด
+        self.last_known_helmet_state = not is_violation
+
+    def manual_capture(self, frame, detections, is_violation):
+        """กดปุ่ม S เพื่อบันทึกภาพด้วยตนเอง (Manual Snapshot)"""
+        now = time.time()
+        timestamp = datetime.now()
+        prefix = "manual_no_helmet" if is_violation else "manual_helmet"
+        filename = os.path.join(self.captures_dir, 'manual_snapshots', f"{prefix}_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
+
+        status_text = "NO HELMET" if is_violation else "HELMET OK"
+        banner_col = (0, 0, 255) if is_violation else (0, 200, 0)
+        # คำนวณเวลาจับเวลา (Stopwatch)
+        dur_sec = int(now - self.trip_start_time) if (self.engine_started and self.trip_start_time) else int(now - self.start_time)
+        m_mins, m_secs = divmod(dur_sec, 60)
+        dur_str = f"{m_mins:02d}m {m_secs:02d}s"
+
+        watermark = (
+            f"MANUAL SNAPSHOT | {status_text} | SPEED: {self.current_speed:.1f} KM/H | "
+            f"STOPWATCH: {dur_str} | "
             f"GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
             f"{timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
         )
-        cv2.putText(evidence_frame, watermark_text, (16, h - 18),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 255), 1)
-
-        filename = f"captures/violation_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
-        cv2.imwrite(filename, evidence_frame)
-
-        # บันทึก JSON Log
-        violation_data = {
-            'timestamp': timestamp.isoformat(),
-            'speed_kmh': round(self.current_speed, 1),
-            'gps': {
-                'latitude': round(self.gps_lat, 6),
-                'longitude': round(self.gps_lon, 6),
-                'satellites': self.gps_satellites,
-                'module': 'ATGM336H / NEO-M8N'
-            },
-            'relay_state': 'ACTIVE_LIMIT_25KMH',
-            'image_file': filename
-        }
-        self.violations_log.append(violation_data)
-
-        # เขียนลงไฟล์รายวัน
-        log_file = f"logs/violations_{timestamp.strftime('%Y%m%d')}.json"
-        with open(log_file, 'w', encoding='utf-8') as f:
-            json.dump(self.violations_log, f, indent=2, ensure_ascii=False)
-
-        # เล่นเสียงเตือน
-        self._play_buzzer_sound()
-        print(f"[ALERT] ตรวจพบไม่สวมหมวก! บันทึกภาพ: {filename} | พิกัด GPS: {self.gps_lat:.5f}, {self.gps_lon:.5f}")
+        self._save_evidence_image(frame, detections, filename, watermark, banner_color=banner_col)
+        print(f"[MANUAL SAVE] 📸 บันทึกภาพสถานะ ({status_text}): {filename}")
 
     def draw_hud(self, frame, detections, violation):
         """วาดหน้าปัดและแดชบอร์ดรถมอเตอร์ไซค์ไฟฟ้าเสมือนจริง (EV Motorcycle HUD)"""
         h, w = frame.shape[:2]
 
-        # 1. วาดกรอบตรวจจับ (Bounding Boxes)
+        # 1. วาดกรอบตรวจจับ (Bounding Boxes: Person, Helmet, Motorcycle)
         for det in detections:
             cls = det['class']
-            conf = det['confidence']
-            bx, by, bw, bh = det['box']
-            color = (0, 230, 0) if cls == 'helmet' else (0, 0, 255)
+            conf = float(det['confidence'])
+            bx, by, bw, bh = [int(v) for v in det['box']]
 
-            cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), color, 3)
-            label = f"{'HELMET OK' if cls == 'helmet' else 'NO HELMET'} ({int(conf*100)}%)"
-            
+            if cls == 'helmet':
+                color = (0, 230, 0)      # สีเขียวสด
+                label = f"HELMET OK ({int(conf*100)}%)"
+                text_color = (255, 255, 255)
+                box_thickness = 3
+            elif cls == 'no_helmet':
+                color = (0, 0, 255)      # สีแดงสด
+                label = f"NO HELMET ({int(conf*100)}%)"
+                text_color = (255, 255, 255)
+                box_thickness = 3
+            elif cls == 'person':
+                color = (255, 215, 0)    # สีเหลืองทอง
+                label = f"PERSON ({int(conf*100)}%)"
+                text_color = (20, 20, 20)
+                box_thickness = 2
+            elif cls == 'motorcycle':
+                color = (255, 140, 0)    # สีส้ม
+                label = f"MOTORCYCLE ({int(conf*100)}%)"
+                text_color = (255, 255, 255)
+                box_thickness = 2
+            else:
+                color = (200, 200, 200)
+                label = f"{cls.upper()} ({int(conf*100)}%)"
+                text_color = (0, 0, 0)
+                box_thickness = 2
+
+            cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), color, box_thickness)
+
             # ป้ายชื่อหัวมุม
-            cv2.rectangle(frame, (bx, by - 32), (bx + len(label)*11 + 10, by), color, -1)
-            cv2.putText(frame, label, (bx + 6, by - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+            tw = len(label) * 9 + 10
+            lbl_y1 = max(0, by - 26)
+            lbl_y2 = max(26, by)
+            cv2.rectangle(frame, (bx, lbl_y1), (bx + tw, lbl_y2), color, -1)
+            cv2.putText(frame, label, (bx + 5, max(18, by - 8)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.48, text_color, 2)
 
         # 2. แถบสถานะด้านบน (Top Status Bar)
         overlay = frame.copy()
         cv2.rectangle(overlay, (0, 0), (w, 55), (15, 15, 20), -1)
         cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
 
-        # หัวข้อระบบ
-        cv2.putText(frame, "E-MOTORCYCLE SMART HELMET INTERLOCK SYSTEM", (20, 35),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
+        now_dt = datetime.now()
+        current_time_str = now_dt.strftime('%H:%M:%S')
+        current_date_str = now_dt.strftime('%Y-%m-%d')
+
+        # คำนวณระบบจับเวลาการขับขี่ (Live Trip Stopwatch Timer)
+        curr_now = time.time()
+        if self.engine_started and self.trip_start_time is not None:
+            elapsed_sec = int(curr_now - self.trip_start_time)
+            hrs, rem = divmod(elapsed_sec, 3600)
+            mins, secs = divmod(rem, 60)
+            if hrs > 0:
+                trip_timer_str = f"{hrs:02d}:{mins:02d}:{secs:02d}"
+            else:
+                trip_timer_str = f"{mins:02d}:{secs:02d}"
+            timer_color = (0, 255, 200) # เขียวอมฟ้านีออน กำลังจับเวลาการขับขี่
+        else:
+            # ขณะจอดหรือเปิดเครื่องใหม่ ให้จับเวลา Uptime ของระบบ
+            elapsed_sec = int(curr_now - self.start_time)
+            mins, secs = divmod(elapsed_sec, 60)
+            trip_timer_str = f"{mins:02d}:{secs:02d}"
+            timer_color = (180, 220, 255) # ฟ้าอ่อน กำลังจับเวลาระบบ
+
+        # หัวข้อระบบ (ด้านซ้าย)
+        cv2.putText(frame, "E-MOTORCYCLE SMART HELMET SYSTEM", (20, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 255), 2)
+
+        # นาฬิกาบอกเวลาปัจจุบัน (Live Clock)
+        cv2.putText(frame, f"TIME: {current_time_str}", (470, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
+
+        # ระบบจับเวลา (Live Stopwatch Timer)
+        cv2.putText(frame, f"STOPWATCH: {trip_timer_str}", (670, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, timer_color, 2)
 
         # สถานะแบตเตอรี่รถไฟฟ้า
         bat_color = (0, 255, 0) if self.battery_percent > 30 else (0, 0, 255)
-        cv2.putText(frame, f"BAT: {self.battery_voltage:.1f}V ({self.battery_percent}%)", (w - 480, 35),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, bat_color, 2)
+        cv2.putText(frame, f"BAT: {self.battery_voltage:.1f}V", (930, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.50, bat_color, 2)
 
         # สถานะ GPS
-        cv2.putText(frame, f"GPS ATGM336H: 3D FIX ({self.gps_satellites} Sats)", (w - 270, 35),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (100, 240, 255), 2)
+        cv2.putText(frame, f"GPS FIX ({self.gps_satellites} Sats)", (1090, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (100, 240, 255), 2)
 
         # 3. กล่องควบคุมฮาร์ดแวร์เสมือนจริง (Virtual Hardware Panel - ด้านขวา)
         rh_x = w - 340
         overlay2 = frame.copy()
-        cv2.rectangle(overlay2, (rh_x, 70), (w - 15, 340), (10, 12, 18), -1)
+        cv2.rectangle(overlay2, (rh_x, 70), (w - 15, 365), (10, 12, 18), -1)
         cv2.addWeighted(overlay2, 0.82, frame, 0.18, 0, frame)
-        cv2.rectangle(frame, (rh_x, 70), (w - 15, 340), (70, 80, 95), 1)
+        cv2.rectangle(frame, (rh_x, 70), (w - 15, 365), (70, 80, 95), 1)
 
         cv2.putText(frame, "HARDWARE INTERFACE (RPI 4)", (rh_x + 15, 96),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.52, (200, 220, 255), 2)
@@ -420,7 +779,16 @@ class PCHelmetSimulator:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.44, (200, 200, 200), 1)
         cv2.putText(frame, f"Total Violations: {len(self.violations_log)}", (rh_x + 18, 285),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 180, 255), 2)
-        cv2.putText(frame, f"Demo Mode: {'MANUAL (H key)' if self.manual_override else 'AUTO CAMERA'}", (rh_x + 18, 312),
+        if not self.manual_override:
+            mode_text = "AUTO (AI Tracking)"
+            mode_col = (0, 255, 180)
+        elif self.forced_helmet_state:
+            mode_text = "MANUAL (HELMET ON)"
+            mode_col = (0, 255, 0)
+        else:
+            mode_text = "MANUAL (NO HELMET)"
+            mode_col = (0, 100, 255)
+        cv2.putText(frame, f"Demo Mode: {mode_text}", (rh_x + 18, 312),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 255, 180), 1)
 
         # 4. หน้าปัดเรือนไมล์รถมอเตอร์ไซค์ไฟฟ้า (Digital Speedometer Dashboard - ด้านซ้ายล่าง)
@@ -454,6 +822,10 @@ class PCHelmetSimulator:
         fill_w = max(0, min(bar_w, fill_w))
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), speed_color, -1)
 
+        # เวลาจับเวลาบนหน้าปัดเรือนไมล์ (Speedometer Stopwatch Display)
+        cv2.putText(frame, f"STOPWATCH: {trip_timer_str}", (40, h - 90),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, timer_color, 2)
+
         # ข้อความสถานะคันเร่ง / สตาร์ท
         if self.engine_locked:
             throttle_status = "ENGINE: LOCKED (NO HELMET)"
@@ -461,8 +833,8 @@ class PCHelmetSimulator:
         else:
             throttle_status = "THROTTLE: APPLIED" if self.is_throttling else "THROTTLE: RELEASED"
             t_col = (0, 255, 0) if self.is_throttling else (180, 200, 220)
-        cv2.putText(frame, throttle_status, (40, h - 75),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.44, t_col, 1)
+        cv2.putText(frame, throttle_status, (40, h - 72),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, t_col, 1)
 
         # 5. ป้ายเตือนกระพริบกลางจอ
         if self.engine_locked:
@@ -493,11 +865,16 @@ class PCHelmetSimulator:
         cv2.rectangle(overlay4, (0, h - 50), (w, h), (10, 10, 15), -1)
         cv2.addWeighted(overlay4, 0.9, frame, 0.1, 0, frame)
 
-        gps_info = f"GPS POS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | SATS: {self.gps_satellites} | SPEED: {self.current_speed:.1f} KM/H"
+        gps_info = (
+            f"GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
+            f"SPEED: {self.current_speed:.1f} KM/H | "
+            f"TIME: {current_time_str} | "
+            f"TRIP DURATION: {trip_timer_str}"
+        )
         cv2.putText(frame, gps_info, (20, h - 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1)
 
-        shortcuts = "[H] Toggle Helmet | [T/Up] Throttle | [B/Down] Brake | [S] Capture | [R] Reset | [Q] Quit"
+        shortcuts = "[H] Toggle Helmet | [A] Auto AI | [T/Up] Throttle | [B/Down] Brake | [S] Capture | [R] Reset | [Q] Quit"
         cv2.putText(frame, shortcuts, (20, h - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 190, 200), 1)
 
@@ -535,9 +912,8 @@ class PCHelmetSimulator:
                 # 3. คำนวณฟิสิกส์ความเร็วและ GPS
                 self.update_physics(violation)
                 
-                # 4. หากพบการละเมิด บันทึกภาพและประทับลายน้ำพิกัด
-                if violation:
-                    self.process_violation(frame, detections)
+                # 4. ระบบบันทึกภาพอัจฉริยะตามเหตุการณ์จริง (Smart Event-Driven Capture)
+                self.handle_capture_events(frame, detections, violation)
                 
                 # 5. วาดแดชบอร์ด HUD
                 frame = self.draw_hud(frame, detections, violation)
@@ -557,10 +933,20 @@ class PCHelmetSimulator:
                 if key == ord('q') or key == 27:  # Q หรือ Esc
                     break
                 elif key == ord('h') or key == ord('H'):
-                    self.manual_override = True
-                    self.forced_helmet_state = not self.forced_helmet_state
-                    status_str = "สวมหมวกนิรภัย (HELMET ON)" if self.forced_helmet_state else "ไม่สวมหมวกนิรภัย (NO HELMET)"
-                    print(f"[DEMO CONTROL] บังคับสถานะ: {status_str}")
+                    # สลับสถานะ: Auto -> Manual สวมหมวก -> Manual ไม่สวมหมวก -> กลับมา Auto
+                    if not self.manual_override:
+                        self.manual_override = True
+                        self.forced_helmet_state = True
+                        print("[DEMO CONTROL] บังคับสถานะ: สวมหมวกนิรภัย (HELMET ON)")
+                    elif self.forced_helmet_state:
+                        self.forced_helmet_state = False
+                        print("[DEMO CONTROL] บังคับสถานะ: ไม่สวมหมวกนิรภัย (NO HELMET)")
+                    else:
+                        self.manual_override = False
+                        print("[DEMO CONTROL] กลับสู่โหมด: ตรวจจับอัตโนมัติ (AUTO AI)")
+                elif key == ord('a') or key == ord('A'):
+                    self.manual_override = False
+                    print("[DEMO CONTROL] กลับสู่โหมด: ตรวจจับอัตโนมัติ (AUTO AI)")
                 elif key == ord('t') or key == ord('T') or key == 82: # T หรือ Up Arrow
                     if self.engine_locked:
                         print("[LOCKED] ⛔ สตาร์ทรถไม่ติด! มอเตอร์ไม่ทำงาน กรุณาสวมหมวกนิรภัยก่อน (กด 'H' เพื่อจำลองสวมหมวก)")
@@ -575,14 +961,16 @@ class PCHelmetSimulator:
                         self.is_throttling = False
                     print(f"[BRAKE] ลดความเร็วเป้าหมาย: {self.target_speed:.0f} km/h")
                 elif key == ord('s') or key == ord('S'):
-                    self.last_violation_time = 0
-                    self.process_violation(frame, detections)
+                    self.manual_capture(frame, detections, violation)
                 elif key == ord('r') or key == ord('R'):
                     self.violations_log.clear()
                     self.current_speed = 0.0
                     self.target_speed = 45.0
                     self.manual_override = False
-                    print("[RESET] รีเซ็ตสถิติทั้งหมดเรียบร้อย")
+                    self.has_captured_start = False
+                    self.trip_start_time = None
+                    self.last_known_helmet_state = False
+                    print("[RESET] รีเซ็ตสถิติและการเดินทางเรียบร้อย")
                 elif key == ord('m') or key == ord('M'):
                     self.use_synthetic_frame = not self.use_synthetic_frame
                     print(f"[MODE] สลับเป็นโหมด: {'ภาพจำลอง (Synthetic)' if self.use_synthetic_frame else 'กล้องเว็บแคมจริง'}")
