@@ -539,9 +539,6 @@ class HelmetDetectionSystem:
             cv2.imwrite(filename, annotated_frame)
             all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
             cv2.imwrite(all_path, annotated_frame)
-            root_path = os.path.join(self.captures_dir, os.path.basename(filename))
-            if os.path.abspath(filename) != os.path.abspath(root_path):
-                cv2.imwrite(root_path, annotated_frame)
             violation['image'] = filename
             print(f"[ALERT] 🚨 บันทึกภาพหลักฐาน ({violation_type}): {filename}")
 
@@ -569,9 +566,6 @@ class HelmetDetectionSystem:
         cv2.imwrite(filename, annotated_frame)
         all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
         cv2.imwrite(all_path, annotated_frame)
-        root_path = os.path.join(self.captures_dir, os.path.basename(filename))
-        if os.path.abspath(filename) != os.path.abspath(root_path):
-            cv2.imwrite(root_path, annotated_frame)
         print(f"[SAFE START] 🟢 บันทึกภาพยืนยันการสวมหมวกออกรถ: {filename}")
 
     def _send_speed_limit_command(self):
@@ -718,9 +712,6 @@ class HelmetDetectionSystem:
                     cv2.imwrite(filename, annotated_frame)
                     all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
                     cv2.imwrite(all_path, annotated_frame)
-                    root_path = os.path.join(self.captures_dir, os.path.basename(filename))
-                    if os.path.abspath(filename) != os.path.abspath(root_path):
-                        cv2.imwrite(root_path, annotated_frame)
                     print(f"[SAVE] 📸 บันทึกภาพ Snapshot ({status_text}): {filename}")
                 elif key == ord('r'):
                     self.detection_history.clear()

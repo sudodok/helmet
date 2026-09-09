@@ -506,15 +506,10 @@ class PCHelmetSimulator:
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         cv2.imwrite(filename, evidence_frame)
 
-        # 2. บันทึกลงโฟลเดอร์รวม 'captures/all_captures/' (โฟลเดอร์รวมทุกภาพ ไม่ต้องแยกอะไร ดูได้ครบในที่เดียว)
+        # 2. บันทึกลงโฟลเดอร์รวม 'captures/all_captures/' (สำหรับดูภาพรวมทุกภาพในที่เดียว ไม่ปะปนกับหน้าแรก)
         all_folder_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
         os.makedirs(os.path.dirname(all_folder_path), exist_ok=True)
         cv2.imwrite(all_folder_path, evidence_frame)
-
-        # 3. บันทึกลงโฟลเดอร์หลัก 'captures/' โดยตรง (เปิดโฟลเดอร์มาเห็นภาพทั้งหมดทันที)
-        root_path = os.path.join(self.captures_dir, os.path.basename(filename))
-        if os.path.abspath(filename) != os.path.abspath(root_path):
-            cv2.imwrite(root_path, evidence_frame)
 
     def handle_capture_events(self, frame, detections, is_violation):
         """บันทึกภาพตามเหตุการณ์จริง: ทั้งตอนสวมหมวกออกรถ และตอนถอดหมวกกลางคัน"""
