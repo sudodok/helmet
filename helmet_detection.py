@@ -463,8 +463,7 @@ class HelmetDetectionSystem:
             (f"Clock Time: {now_time_str}", (255, 255, 255)),
             (f"Stopwatch ({timer_label}): {stopwatch_display}", timer_color),
             (f"Engine: {engine_status}", (0, 255, 0) if self.engine_started else (0, 0, 255)),
-            (f"Speed: {self.current_gps['speed']:.1f} km/h (Sats: {self.current_gps['satellites']})", (100, 240, 255)),
-            (f"GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f}", (200, 200, 200)),
+            (f"Speed: {self.current_gps['speed']:.1f} km/h", (100, 240, 255)),
             (f"Violations: {len(self.alert_log)} | Mode: {mode_name}", (255, 180, 0))
         ]
 
@@ -527,12 +526,12 @@ class HelmetDetectionSystem:
             cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), (0, 0, 255), -1)
 
             if is_mid_ride:
-                watermark_text = f"[ALERT] MID-RIDE HELMET REMOVAL | STOPWATCH: {trip_str} | SPEED: {speed:.1f} km/h | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                watermark_text = f"[ALERT] MID-RIDE HELMET REMOVAL | STOPWATCH: {trip_str} | SPEED: {speed:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
             else:
                 uptime_sec = int(now - self.start_time)
                 u_m, u_s = divmod(uptime_sec, 60)
                 up_str = f"{u_m:02d}m {u_s:02d}s"
-                watermark_text = f"[ALERT] NO HELMET DETECTED | STOPWATCH: {up_str} | SPEED: {speed:.1f} km/h | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                watermark_text = f"[ALERT] NO HELMET DETECTED | STOPWATCH: {up_str} | SPEED: {speed:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
 
             cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
@@ -542,9 +541,8 @@ class HelmetDetectionSystem:
             violation['image'] = filename
             print(f"[ALERT] 🚨 บันทึกภาพหลักฐาน ({violation_type}): {filename}")
 
-        # ส่งสัญญาณจำกัดความเร็ว
-        if self.config['electric_motorcycle']['auto_limit_speed']:
-            self._send_speed_limit_command()
+        # เตือนภัยด้วยไฟ LED และเสียง Buzzer (ไม่ตัดความเร็วกะทันหันกลางคัน)
+        pass
 
         # บันทึก log
         self._save_log(violation)
@@ -560,7 +558,7 @@ class HelmetDetectionSystem:
 
         cv2.rectangle(annotated_frame, (0, h - 45), (w, h), (15, 15, 15), -1)
         cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), (0, 200, 0), -1)
-        watermark_text = f"[PASS] SAFE START | HELMET VERIFIED | STOPWATCH: 00m 00s | SPEED: {self.current_gps['speed']:.1f} km/h | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+        watermark_text = f"[PASS] SAFE START | HELMET VERIFIED | STOPWATCH: 00m 00s | SPEED: {self.current_gps['speed']:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
         cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
         cv2.imwrite(filename, annotated_frame)
@@ -706,7 +704,7 @@ class HelmetDetectionSystem:
                     h, w = annotated_frame.shape[:2]
                     cv2.rectangle(annotated_frame, (0, h - 45), (w, h), (15, 15, 15), -1)
                     cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), banner_col, -1)
-                    watermark_text = f"MANUAL SNAPSHOT | {status_text} | STOPWATCH: {dur_str} | SPEED: {self.current_gps['speed']:.1f} km/h | GPS: {self.current_gps['lat']:.5f}, {self.current_gps['lon']:.5f} | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                    watermark_text = f"MANUAL SNAPSHOT | {status_text} | STOPWATCH: {dur_str} | SPEED: {self.current_gps['speed']:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
                     cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
                     cv2.imwrite(filename, annotated_frame)

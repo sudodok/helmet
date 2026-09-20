@@ -724,9 +724,9 @@ class PCHelmetSimulator:
         cv2.putText(frame, f"BAT: {self.battery_voltage:.1f}V", (930, 35),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.50, bat_color, 2)
 
-        # สถานะ GPS
-        cv2.putText(frame, f"GPS FIX ({self.gps_satellites} Sats)", (1090, 35),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (100, 240, 255), 2)
+        # สถานะระบบความปลอดภัย
+        cv2.putText(frame, "SAFETY ACTIVE", (1080, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 200), 2)
 
         # 3. กล่องควบคุมฮาร์ดแวร์เสมือนจริง (Virtual Hardware Panel - ด้านขวา)
         rh_x = w - 340
@@ -852,21 +852,21 @@ class PCHelmetSimulator:
                 cv2.rectangle(frame, (ab_x - 3, ab_y - 3), (ab_x + alert_box_w + 3, ab_y + alert_box_h + 3), (0, 255, 255), 2)
                 cv2.putText(frame, "! WARNING: NO HELMET DETECTED !", (ab_x + 35, ab_y + 28),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
-                cv2.putText(frame, "MOTOR SPEED RESTRICTED TO MAX 25 KM/H", (ab_x + 55, ab_y + 52),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 0), 2)
+                cv2.putText(frame, "STAGE 1: RED LED ALERT  |  STAGE 2: BUZZER ALARM SOUND", (ab_x + 30, ab_y + 52),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.46, (255, 255, 0), 2)
 
         # 6. แถบล่างสุด: พิกัด GPS แบบ Real-time และแถบวิธีใช้งาน
         overlay4 = frame.copy()
         cv2.rectangle(overlay4, (0, h - 50), (w, h), (10, 10, 15), -1)
         cv2.addWeighted(overlay4, 0.9, frame, 0.1, 0, frame)
 
-        gps_info = (
-            f"GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
+        system_info = (
+            f"STATUS: SYSTEM ACTIVE | "
             f"SPEED: {self.current_speed:.1f} KM/H | "
             f"TIME: {current_time_str} | "
             f"TRIP DURATION: {trip_timer_str}"
         )
-        cv2.putText(frame, gps_info, (20, h - 28),
+        cv2.putText(frame, system_info, (20, h - 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1)
 
         shortcuts = "[H] Toggle Helmet | [A] Auto AI | [T/Up] Throttle | [B/Down] Brake | [S] Capture | [R] Reset | [Q] Quit"
