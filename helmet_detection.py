@@ -50,7 +50,6 @@ class HelmetDetectionSystem:
         self.captures_dir = os.path.join(self.base_dir, 'captures')
         self.logs_dir = os.path.join(self.base_dir, 'logs')
         os.makedirs(self.captures_dir, exist_ok=True)
-        os.makedirs(os.path.join(self.captures_dir, 'all_captures'), exist_ok=True) # โฟลเดอร์รวมทุกภาพ ไม่แยกหมวดหมู่
         os.makedirs(os.path.join(self.captures_dir, 'safe_start'), exist_ok=True)
         os.makedirs(os.path.join(self.captures_dir, 'mid_ride_violations'), exist_ok=True)
         os.makedirs(os.path.join(self.captures_dir, 'no_helmet'), exist_ok=True)  # โฟลเดอร์ตรวจพบไม่ใส่หมวก (ไม่ใช่ถอดกลางคัน)
@@ -536,8 +535,6 @@ class HelmetDetectionSystem:
             cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
             cv2.imwrite(filename, annotated_frame)
-            all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
-            cv2.imwrite(all_path, annotated_frame)
             violation['image'] = filename
             print(f"[ALERT] 🚨 บันทึกภาพหลักฐาน ({violation_type}): {filename}")
 
@@ -562,8 +559,6 @@ class HelmetDetectionSystem:
         cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
         cv2.imwrite(filename, annotated_frame)
-        all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
-        cv2.imwrite(all_path, annotated_frame)
         print(f"[SAFE START] 🟢 บันทึกภาพยืนยันการสวมหมวกออกรถ: {filename}")
 
     def _send_speed_limit_command(self):
@@ -708,8 +703,6 @@ class HelmetDetectionSystem:
                     cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
                     cv2.imwrite(filename, annotated_frame)
-                    all_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
-                    cv2.imwrite(all_path, annotated_frame)
                     print(f"[SAVE] 📸 บันทึกภาพ Snapshot ({status_text}): {filename}")
                 elif key == ord('r'):
                     self.detection_history.clear()

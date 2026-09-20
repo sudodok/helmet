@@ -7,48 +7,48 @@
 
 ```mermaid
 flowchart TD
-    Start(["🟢 เริ่มต้นการทำงานของระบบ"]) --> Init["1. โหลดโมเดล YOLOv8n / Haar Cascade<br/>2. เริ่มต้นกล้องตรวจจับผู้ขับขี่<br/>3. เชื่อมต่อตัวควบคุมวงจร Controller / Relay<br/>4. ตั้งค่าโฟลเดอร์ captures/ และตัวแปรระบบ"]
+    Start(["🟢 เริ่มต้นการทำงานของระบบ"]) --> Init["1. โหลดโมเดล AI ตรวจจับหมวกนิรภัย<br/>2. เริ่มต้นกล้องตรวจจับผู้ขับขี่<br/>3. เชื่อมต่อระบบตัดวงจรสตาร์ท (Starter Interlock)<br/>4. กำหนดค่าโฟลเดอร์จัดเก็บภาพหลักฐาน"]
     
     Init --> ReadCamera["อ่านข้อมูลเฟรมภาพจากกล้องตรวจจับผู้ขับขี่"]
     
-    ReadCamera --> AIProcess["ประมวลผลภาพด้วย AI:<br/>- ตรวจจับบุคคล Person Detection<br/>- ตรวจจับหมวกนิรภัย Helmet Detection<br/>- กรองการสั่นไหวด้วย 7-Frame Majority Filter"]
+    ReadCamera --> AIProcess["ประมวลผลภาพด้วย AI:<br/>- ตรวจจับบุคคล (Person Detection)<br/>- ตรวจจับหมวกนิรภัย (Helmet Detection)<br/>- กรองความเสถียรด้วย 7-Frame Majority Filter"]
     
-    AIProcess --> CheckEngine{"สถานะรถสตาร์ทแล้วหรือยัง?<br/>engine_started == True?"}
+    AIProcess --> CheckEngine{"สถานะเครื่องยนต์<br/>สตาร์ทแล้วหรือยัง?"}
     
     %% ================= สาขา 1: ก่อนสตาร์ท / รถจอดนิ่ง =================
-    CheckEngine -->|"ยังไม่สตาร์ท (จอดนิ่ง)"| CheckStartHelmet{"ตรวจพบการสวมหมวกนิรภัย?<br/>is_violation == False?"}
+    CheckEngine -->|"ยังไม่สตาร์ท (จอดนิ่ง)"| CheckStartHelmet{"ตรวจพบการสวมหมวกนิรภัย<br/>ถูกต้องหรือไม่?"}
     
-    CheckStartHelmet -->|"ไม่สวมหมวก"| LockEngine["⛔ ตัดวงจรสตาร์ท Engine Locked<br/>บิดคันเร่งไม่ไป รถไม่สามารถออกตัวได้<br/>ไฟแดงติด LED Red ON"]
-    LockEngine --> CheckNoHelmetCooldown{"ตรวจจับไม่สวมหมวก<br/>ครบ Cooldown 5 วิ หรือไม่?"}
-    CheckNoHelmetCooldown -->|"ใช่"| SaveNoHelmet["📸 บันทึกภาพ no_helmet_*.jpg<br/>ลง captures/no_helmet/ และ all_captures/<br/>ประทับเวลาจับเวลาระบบ STOPWATCH & TIME"]
+    CheckStartHelmet -->|"ไม่สวมหมวก"| LockEngine["⛔ ล็อคระบบสตาร์ทเครื่องยนต์<br/>บิดคันเร่งไม่ไป รถไม่สามารถออกตัวได้<br/>ไฟเตือนสีแดงติดสว่าง"]
+    LockEngine --> CheckNoHelmetCooldown{"ตรวจจับไม่สวมหมวก<br/>ครบกำหนดเวลา 5 วินาทีหรือไม่?"}
+    CheckNoHelmetCooldown -->|"ใช่"| SaveNoHelmet["📸 บันทึกภาพ no_helmet_*.jpg<br/>ลงโฟลเดอร์ captures/no_helmet/<br/>ประทับเวลาขับขี่และเวลาจริงบนภาพ"]
     CheckNoHelmetCooldown -->|"ไม่ใช่ หรือ บันทึกแล้ว"| RenderHUD
     SaveNoHelmet --> RenderHUD
     
-    CheckStartHelmet -->|"สวมหมวกถูกต้อง"| UnlockEngine["✅ ปลดล็อคสตาร์ทรถ ENGINE READY<br/>เปิดไฟเขียวปลอดภัย LED Green ON<br/>เริ่มจับเวลาขับขี่ Start Trip Stopwatch"]
+    CheckStartHelmet -->|"สวมหมวกถูกต้อง"| UnlockEngine["✅ ปลดล็อคระบบสตาร์ท (Engine Ready)<br/>เปิดไฟแสดงสถานะความปลอดภัยสีเขียว<br/>เริ่มนับเวลาการขับขี่ (Trip Stopwatch)"]
     UnlockEngine --> CheckStartCaptured{"เคยบันทึกภาพสตาร์ทแล้วหรือไม่?"}
-    CheckStartCaptured -->|"ยังไม่เคยบันทึก"| SaveSafeStart["📸 บันทึกภาพยืนยัน start_verified_*.jpg<br/>ลง captures/safe_start/ และ all_captures/<br/>ประทับ STOPWATCH: 00m 00s & TIME"]
+    CheckStartCaptured -->|"ยังไม่เคยบันทึก"| SaveSafeStart["📸 บันทึกภาพยืนยัน start_verified_*.jpg<br/>ลงโฟลเดอร์ captures/safe_start/<br/>ประทับเวลาเริ่มต้นขับขี่ 00m 00s บนภาพ"]
     CheckStartCaptured -->|"บันทึกแล้ว"| RenderHUD
     SaveSafeStart --> RenderHUD
     
     %% ================= สาขา 2: รถสตาร์ทแล้ว / กำลังขับขี่ =================
-    CheckEngine -->|"สตาร์ทแล้ว (กำลังขับขี่)"| CheckMidRideHelmet{"ตรวจพบการสวมหมวกต่อเนื่อง?<br/>is_violation == False?"}
+    CheckEngine -->|"สตาร์ทแล้ว (กำลังขับขี่)"| CheckMidRideHelmet{"ยังคงสวมหมวกนิรภัย<br/>ต่อเนื่องหรือไม่?"}
     
-    CheckMidRideHelmet -->|"สวมหมวกปกติ"| NormalRide["🟢 ขับขี่ปกติ Normal Riding Mode<br/>บิดคันเร่งได้เต็มกำลังปกติ ไม่ตัดความเร็ว<br/>ไฟเขียวติด ไซเรนเงียบ"]
+    CheckMidRideHelmet -->|"สวมหมวกปกติ"| NormalRide["🟢 โหมดการขับขี่ปกติ<br/>ควบคุมความเร็วได้เต็มประสิทธิภาพ<br/>ไฟแสดงสถานะสีเขียว เสียงไซเรนเงียบ"]
     NormalRide --> RenderHUD
     
-    CheckMidRideHelmet -->|"ถอดหมวกกลางคัน"| Stage1_LED["🔴 ขั้นที่ 1: เปิดไฟเตือนสีแดงทันที (LED Red Alert ON)<br/>หน้าจอแสดงข้อความกระพริบเตือนสีแดง"]
-    Stage1_LED --> Stage2_Buzzer["🔊 ขั้นที่ 2: ตามด้วยเสียงสัญญาณไซเรนเตือน (Buzzer Alarm Beep)<br/>*(ขับขี่ต่อได้ ไม่ตัดความเร็วกะทันหันเพื่อความปลอดภัย)*"]
-    Stage2_Buzzer --> CheckMidRideCooldown{"ครบ Cooldown 4 วิ หรือไม่?"}
-    CheckMidRideCooldown -->|"ใช่"| SaveMidRide["📸 บันทึกภาพหลักฐาน mid_ride_*.jpg<br/>ลง captures/mid_ride_violations/ และ all_captures/<br/>ประทับเวลาขับขี่ STOPWATCH: ระยะเวลาขับขี่"]
-    CheckMidRideCooldown -->|"ไม่ใช่ หรือ บันทึกแล้ว"| CheckStopStill{"ผู้ขับขี่ชะลอรถจนจอดนิ่ง 0 km/h<br/>แล้วยังไม่สวมหมวกหรือไม่?"}
+    CheckMidRideHelmet -->|"ถอดหมวกกลางคัน"| Stage1_LED["🔴 ขั้นที่ 1: ไฟเตือนสีแดงติดทันที<br/>หน้าจอแสดงแถบข้อความกะพริบเตือนสีแดง"]
+    Stage1_LED --> Stage2_Buzzer["🔊 ขั้นที่ 2: ตามด้วยเสียงสัญญาณไซเรนเตือน<br/>*(ผู้ขับขี่ยังควบคุมรถได้ ไม่ตัดความเร็วกะทันหัน)*"]
+    Stage2_Buzzer --> CheckMidRideCooldown{"ครบกำหนดเวลา 4 วินาทีหรือไม่?"}
+    CheckMidRideCooldown -->|"ใช่"| SaveMidRide["📸 บันทึกภาพหลักฐาน mid_ride_*.jpg<br/>ลงโฟลเดอร์ captures/mid_ride_violations/<br/>ประทับระยะเวลาที่ขับขี่มาแล้วบนภาพ"]
+    CheckMidRideCooldown -->|"ไม่ใช่ หรือ บันทึกแล้ว"| CheckStopStill{"ผู้ขับขี่ชะลอรถจนจอดนิ่งสนิท 0 km/h<br/>แล้วยังไม่สวมหมวกหรือไม่?"}
     SaveMidRide --> CheckStopStill
     
-    CheckStopStill -->|"ใช่ (จอดนิ่งสนิท)"| ReLock["ล็อคเครื่องยนต์ใหม่ทันที engine_started = False<br/>ต้องสวมหมวกก่อนจึงจะออกรถได้ใหม่"]
+    CheckStopStill -->|"ใช่ (จอดนิ่งสนิท)"| ReLock["ล็อคระบบสตาร์ทเครื่องยนต์ทันที<br/>ต้องสวมหมวกก่อนจึงจะออกรถได้ใหม่"]
     CheckStopStill -->|"ยังขับขี่อยู่"| RenderHUD
     ReLock --> RenderHUD
     
     %% ================= ส่วนการแสดงผลและลูป =================
-    RenderHUD["วาดหน้าจอแสดงผล Dashboard & HUD:<br/>- นาฬิกาเวลาจริง TIME: HH:MM:SS<br/>- ระบบจับเวลาสด STOPWATCH: MM:SS<br/>- กรอบตรวจจับ Bounding Box & ป้ายชื่อ<br/>- แสดงสถานะไฟเตือนและไซเรน"]
+    RenderHUD["แสดงผลบนหน้าจอ Dashboard & HUD:<br/>- นาฬิกาบอกเวลาปัจจุบัน TIME<br/>- เวลาการขับขี่สะสม STOPWATCH<br/>- กรอบตรวจจับ AI Bounding Box<br/>- สถานะไฟเตือนและเสียงไซเรน"]
     
     RenderHUD --> CheckExit{"ผู้ใช้กดปุ่ม 'q'<br/>เพื่อออกจากโปรแกรมหรือไม่?"}
     CheckExit -->|"ไม่ใช่"| ReadCamera
@@ -81,7 +81,7 @@ flowchart LR
 
 ## 3. ตารางสถานะการทำงานของระบบ (State Transition Table)
 
-| สถานะของรถ | การตรวจจับหมวก | สวิตช์รีเลย์สตาร์ท | ความเร็วมอเตอร์ | ไฟเตือน LED | เสียงเตือน Buzzer | โฟลเดอร์ที่บันทึกภาพ | ลายน้ำที่ประทับลงภาพ (Watermark) |
+| สถานะของรถ | การตรวจจับหมวก | ระบบตัดต่อสตาร์ท (Interlock) | ความเร็วมอเตอร์ | ไฟเตือน LED | เสียงเตือน Buzzer | โฟลเดอร์ที่บันทึกภาพ | ลายน้ำที่ประทับลงภาพ (Watermark) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | **ก่อนสตาร์ท / จอดนิ่ง** | ❌ ไม่สวม | **LOCKED (ตัดไฟสตาร์ท)** | บิดไม่ไป (0 km/h) | 🔴 ไฟแดงติด | เงียบ | `captures/no_helmet/` | `[ALERT] NO HELMET DETECTED | STOPWATCH: 00m 25s | ENGINE LOCKED` |
 | **ก่อนสตาร์ท / จอดนิ่ง** | ✅ สวมถูกต้อง | **UNLOCKED (พร้อมขับ)** | พร้อมบิดคันเร่ง | 🟢 ไฟเขียวติด | เงียบ | `captures/safe_start/` | `[PASS] SAFE START | HELMET VERIFIED | STOPWATCH: 00m 00s` |
@@ -89,20 +89,20 @@ flowchart LR
 | **กำลังขับขี่บนถนน** | ❌ แอบถอดกลางคัน | **UNLOCKED** | **ไม่ตัดความเร็ว (วิ่งต่อได้)** | **🔴 1. ไฟแดงเตือนขึ้นก่อน** | **🔊 2. ตามด้วยเสียงเตือนดัง** | `captures/mid_ride_violations/` | `[ALERT] MID-RIDE HELMET REMOVAL | STOPWATCH: 02m 15s | TIME: ...` |
 | **ทุกสภาวะ** | กดปุ่ม `[S]` | ตามสภาวะขณะนั้น | ตามสภาวะขณะนั้น | ตามสภาวะ | เงียบ | `captures/manual_snapshots/` | `MANUAL SNAPSHOT | {STATUS} | STOPWATCH: {TIME}` |
 
-> 💡 **หมายเหตุ**: ทุกภาพที่บันทึกจะถูกทำสำเนาส่งไปยังโฟลเดอร์รวม `captures/all_captures/` โดยอัตโนมัติ เพื่อให้เปิดดูภาพทั้งหมดได้ในที่เดียว
+> 💡 **หมายเหตุ**: ระบบจะแยกจัดเก็บภาพหลักฐานตามโฟลเดอร์เหตุการณ์อย่างเป็นระเบียบ เพื่อให้สะดวกต่อการตรวจสอบและสืบค้น
 
 ---
 
 ## 4. คำอธิบายขั้นตอนการทำงานอย่างละเอียด (สำหรับใส่เล่มรายงาน บทที่ 3)
 
 ### ขั้นตอนที่ 1: การเริ่มต้นระบบ (System Initialization)
-เมื่อเปิดสวิตช์กุญแจรถมอเตอร์ไซค์ไฟฟ้า บอร์ดประมวลผล (Raspberry Pi 4) จะโหลดโมเดลปัญญาประดิษฐ์ YOLOv8n, เปิดกล้องดิจิทัลตรวจจับผู้ขับขี่, และสร้างโครงสร้างโฟลเดอร์จัดเก็บภาพหลักฐาน โดยระบบจะตั้งค่าเริ่มต้นให้ **"ระบบสตาร์ทเครื่องยนต์ถูกล็อค (Engine Locked)"** เสมอเพื่อความปลอดภัย
+เมื่อเปิดสวิตช์กุญแจรถมอเตอร์ไซค์ไฟฟ้า บอร์ดประมวลผล (Raspberry Pi 4) จะโหลดโมเดลปัญญาประดิษฐ์ตรวจจับวัตถุ, เปิดกล้องดิจิทัลตรวจจับผู้ขับขี่, และสร้างโครงสร้างโฟลเดอร์จัดเก็บภาพหลักฐาน โดยระบบจะตั้งค่าเริ่มต้นให้ **"ระบบสตาร์ทเครื่องยนต์ถูกล็อค (Engine Locked)"** เสมอเพื่อความปลอดภัย
 
 ### ขั้นตอนที่ 2: การประมวลผลภาพจากกล้อง (AI Vision Processing)
 กล้องจะจับภาพผู้ขับขี่อย่างต่อเนื่องและส่งเข้าสู่โมเดลตรวจจับวัตถุ เพื่อระบุตำแหน่งบุคคล (Person) และตรวจสอบสภาวะของศีรษะว่าสวมหมวกนิรภัย (Helmet) หรือไม่สวมหมวก (No Helmet) โดยใช้ **7-Frame Majority Filter** ร่วมกับ **สัดส่วนกายวิภาคศีรษะมนุษย์ (Human Anatomical Ratio)** เพื่อให้กรอบตรวจจับนิ่งเสถียร ไม่กะพริบวูบวาบ
 
 ### ขั้นตอนที่ 3: การบังคับสวมหมวกก่อนออกรถ (Start Interlock)
-- หากผู้ขับขี่ **ไม่สวมหมวกนิรภัย**: สวิตช์รีเลย์จะตัดวงจรสตาร์ทคันเร่ง บิดไม่ไป รถไม่สามารถออกตัวได้ พร้อมบันทึกภาพถ่ายหลักฐาน `no_helmet_*.jpg`
+- หากผู้ขับขี่ **ไม่สวมหมวกนิรภัย**: ระบบตัดต่อสตาร์ท (Interlock) จะตัดวงจรคันเร่ง บิดไม่ไป รถไม่สามารถออกตัวได้ พร้อมบันทึกภาพถ่ายหลักฐาน `no_helmet_*.jpg`
 - หากผู้ขับขี่ **สวมหมวกนิรภัยถูกต้อง**: ระบบจะปลดล็อคให้สตาร์ทรถได้ทันที (ENGINE READY), เปิดไฟเขียวแสดงความปลอดภัย, บันทึกภาพยืนยัน `start_verified_*.jpg` และเริ่มนับเวลาการขับขี่ (Live Trip Stopwatch)
 
 ### ขั้นตอนที่ 4: การแจ้งเตือนเมื่อแอบถอดหมวกกลางคัน (Two-Stage Mid-Ride Warning Alert)

@@ -38,7 +38,6 @@ class PCHelmetSimulator:
         self.captures_dir = os.path.join(self.base_dir, 'captures')
         self.logs_dir = os.path.join(self.base_dir, 'logs')
         os.makedirs(self.captures_dir, exist_ok=True)
-        os.makedirs(os.path.join(self.captures_dir, 'all_captures'), exist_ok=True) # โฟลเดอร์รวมรูปทุกเหตุการณ์ไว้ที่เดียว ไม่แยกหมวดหมู่
         os.makedirs(os.path.join(self.captures_dir, 'safe_start'), exist_ok=True)
         os.makedirs(os.path.join(self.captures_dir, 'mid_ride_violations'), exist_ok=True)
         os.makedirs(os.path.join(self.captures_dir, 'no_helmet'), exist_ok=True) # โฟลเดอร์ตรวจพบไม่สวมหมวก (ไม่ใช่ถอดกลางคัน)
@@ -506,10 +505,7 @@ class PCHelmetSimulator:
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         cv2.imwrite(filename, evidence_frame)
 
-        # 2. บันทึกลงโฟลเดอร์รวม 'captures/all_captures/' (สำหรับดูภาพรวมทุกภาพในที่เดียว ไม่ปะปนกับหน้าแรก)
-        all_folder_path = os.path.join(self.captures_dir, 'all_captures', os.path.basename(filename))
-        os.makedirs(os.path.dirname(all_folder_path), exist_ok=True)
-        cv2.imwrite(all_folder_path, evidence_frame)
+
 
     def handle_capture_events(self, frame, detections, is_violation):
         """บันทึกภาพตามเหตุการณ์จริง: ทั้งตอนสวมหมวกออกรถ และตอนถอดหมวกกลางคัน"""
