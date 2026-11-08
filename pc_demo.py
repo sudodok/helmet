@@ -234,163 +234,157 @@ class PCHelmetSimulator:
         ]
 
     def analyze_frame(self, frame):
-        """วิเคราะห์ภาพตรวจจับคน (Person) และหมวกนิรภัย (Helmet) แบบนิ่ง เสถียร ไม่กระพริบ และติดตามตัวตลอดเวลา"""
+        """วิเคราะห์ภาพตรวจจับคน และหมวกนิรภัย (รองรับทั้งโมเดล Custom YOLOv8 Helmet และ Fallback)"""
         detections = []
         h_frame, w_frame = frame.shape[:2]
 
-        person_box = None
-        head_box = None
-        has_helmet_detected = False
+        # 0. ตรวจสอบ Manual Override (ปุ่ม H)
+        if self.manual_override:
+            final_helmet = self.forced_helmet_state
+            cx, cy = w_frame // 2, h_frame // 2
+            head_box = [cx - 120, cy - 140, 240, 240]
+            detections.append({
+                'class': 'helmet' if final_helmet else 'no_helmet',
+                'confidence': 0.98,
+                'box': head_box
+            })
+            return detections, (not final_helmet)
 
-        # 1. ค้นหาตำแหน่งร่างกายคน (Person Detection)
-        if not self.use_synthetic_frame:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # 1. ตรวจจับด้วยโมเดล YOLO (เช่น best.pt หรือ ncnn ที่เทรนมาใหม่)
+        if not self.use_synthetic_frame and self.yolo_model is not None:
+            try:
+                results = self.yolo_model(frame, imgsz=480, verbose=False, conf=0.30)[0]
+                names_map = getattr(self.yolo_model, 'names', {})
 
-            # ค้นหาด้วย YOLOv8n
-            if self.yolo_model is not None:
-                try:
-                    results = self.yolo_model(frame, imgsz=480, verbose=False, conf=0.35)[0]
-                    best_person_area = 0
+                # ตรวจดูว่าโมเดลเป็นโมเดลตรวจจับหมวกนิรภัยโดยเฉพาะหรือไม่ (with_helmet / without_helmet)
+                is_custom_helmet_model = any(
+                    name.lower() in ['with_helmet', 'without_helmet', 'helmet', 'no_helmet']
+                    for name in names_map.values()
+                )
+
+                if is_custom_helmet_model:
+                    has_helmet = False
+                    has_no_helmet = False
+
                     for box in results.boxes:
                         cls_id = int(box.cls[0])
                         conf = float(box.conf[0])
                         xyxy = box.xyxy[0].cpu().numpy().astype(int)
                         bx, by, bx2, by2 = xyxy
                         bw, bh = max(10, bx2 - bx), max(10, by2 - by)
+                        raw_name = names_map.get(cls_id, str(cls_id)).lower()
 
-                        if cls_id == 0:  # Person
-                            area = bw * bh
-                            if area > best_person_area:
-                                best_person_area = area
-                                person_box = [max(0, bx), max(0, by), min(w_frame - bx, bw), min(h_frame - by, bh), conf]
-                        elif cls_id == 3:  # Motorcycle
+                        if raw_name in ['with_helmet', 'helmet']:
+                            has_helmet = True
+                            smoothed_box = self._smooth_box([bx, by, bw, bh], self.prev_head_box, alpha=0.65)
+                            self.prev_head_box = smoothed_box
+                            detections.append({
+                                'class': 'helmet',
+                                'confidence': conf,
+                                'box': smoothed_box
+                            })
+                        elif raw_name in ['without_helmet', 'no_helmet', 'head']:
+                            has_no_helmet = True
+                            smoothed_box = self._smooth_box([bx, by, bw, bh], self.prev_head_box, alpha=0.65)
+                            self.prev_head_box = smoothed_box
+                            detections.append({
+                                'class': 'no_helmet',
+                                'confidence': conf,
+                                'box': smoothed_box
+                            })
+                        elif raw_name in ['motorcycle', 'bicycle']:
                             detections.append({
                                 'class': 'motorcycle',
                                 'confidence': conf,
                                 'box': [bx, by, bw, bh]
                             })
-                except Exception:
-                    pass
 
-            # 2. ค้นหาตำแหน่งและประเมินหมวกนิรภัย
-            if person_box is not None:
-                # ปรับกรอบคนให้นุ่มนวล ลดอาการกระตุก (Smooth Person Box)
-                raw_p_coords = person_box[:4]
-                p_conf = person_box[4]
-                smoothed_p = self._smooth_box(raw_p_coords, self.prev_person_box, alpha=0.60)
-                self.prev_person_box = smoothed_p
-                bx, by, bw, bh = smoothed_p
-
-                # ค้นหาใบหน้าเฉพาะช่วงครึ่งบนของตัวคน (Upper 60% of body)
-                upper_h = int(bh * 0.60)
-                upper_roi = gray[by:by + upper_h, bx:bx + bw]
-                faces = []
-                if upper_roi.size > 0:
-                    if self.face_cascade_alt is not None:
-                        faces = self.face_cascade_alt.detectMultiScale(
-                            upper_roi, scaleFactor=1.12, minNeighbors=4, minSize=(50, 50)
-                        )
-                    if len(faces) == 0 and self.face_cascade is not None:
-                        faces = self.face_cascade.detectMultiScale(
-                            upper_roi, scaleFactor=1.15, minNeighbors=3, minSize=(50, 50)
-                        )
-
-                # กำหนดขนาดศีรษะตามสัดส่วนร่างกายมนุษย์ที่คงที่ (Human Head Proportional Ratio)
-                # ศีรษะคนปกติกว้างประมาณ 40-42% ของความกว้างช่วงไหล่ และอัตราส่วน กว้าง:สูง ประมาณ 1:1.18
-                prop_w = max(50, int(bw * 0.42))
-                prop_h = int(prop_w * 1.18)
-
-                if len(faces) > 0:
-                    # พบใบหน้า: ใช้ตำแหน่งใบหน้ากำหนดจุดศูนย์กลางศีรษะ
-                    fx, fy, fw, fh = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)[0]
-                    center_x = bx + fx + fw // 2
-                    center_y = by + fy + int(fh * 0.35)
-
-                    # คำนวณขนาดที่กลมกลืน ไม่ให้กระโดดเล็กใหญ่เกินขนาดสัดส่วนตัว (Blended Head Dimension)
-                    face_w = int(fw * 1.45)
-                    face_h = int(fh * 1.65)
-                    head_w = int(0.55 * face_w + 0.45 * prop_w)
-                    head_h = int(0.55 * face_h + 0.45 * prop_h)
-
-                    head_left = max(0, center_x - head_w // 2)
-                    head_top = max(0, center_y - int(head_h * 0.55))
-                    raw_head = [head_left, head_top, head_w, head_h]
-
-                    # ตรวจสอบเหนือหน้าผากว่ามีหมวกกันน็อคครอบอยู่หรือไม่
-                    forehead_top = max(0, by + fy - int(fh * 0.45))
-                    forehead_roi = frame[forehead_top:by + fy, bx + fx:bx + fx + fw]
-                    if forehead_roi.size > 0:
-                        hsv = cv2.cvtColor(forehead_roi, cv2.COLOR_BGR2HSV)
-                        is_helmet_material = np.mean(hsv[:, :, 1] > 100) > 0.40 or np.mean(hsv[:, :, 2] > 200) > 0.45
-                        has_helmet_detected = is_helmet_material
+                    if len(detections) > 0:
+                        is_violation = has_no_helmet or (not has_helmet)
+                        return detections, is_violation
                     else:
-                        has_helmet_detected = False
-                else:
-                    # ไม่พบใบหน้า: ล็อคขนาดและตำแหน่งให้อยู่ตรงกลางส่วนบนของลำตัวอย่างคงที่และนิ่งสนิท
-                    center_x = bx + bw // 2
-                    center_y = by + int(prop_h * 0.48)
+                        # ไม่มีคนหน้ากล้อง
+                        self.prev_head_box = None
+                        return [], False
 
-                    head_w = prop_w
-                    head_h = prop_h
-                    head_left = max(0, center_x - head_w // 2)
-                    head_top = max(0, center_y - int(head_h * 0.55))
-                    raw_head = [head_left, head_top, head_w, head_h]
+            except Exception as e:
+                print(f"[YOLO Inference Warning]: {e}")
 
-                    # ตรวจสอบว่าศีรษะมีหมวกครอบหรือไม่
-                    head_roi = frame[head_top:head_top + head_h, head_left:head_left + head_w]
-                    if head_roi.size > 0:
-                        hsv = cv2.cvtColor(head_roi, cv2.COLOR_BGR2HSV)
-                        if np.mean(hsv[:, :, 1] > 110) > 0.35 or np.mean(hsv[:, :, 2] > 210) > 0.45:
-                            has_helmet_detected = True
-                        else:
-                            has_helmet_detected = False
-                    else:
-                        has_helmet_detected = False
-
-                # ปรับกรอบศีรษะให้นุ่มนวล (Smooth Head Box)
-                smoothed_head = self._smooth_box(raw_head, self.prev_head_box, alpha=0.60)
-                self.prev_head_box = smoothed_head
-                head_box = smoothed_head
-                person_box = [bx, by, bw, bh, p_conf]
-
-        # 3. โหมดภาพจำลอง (Synthetic Mode)
-        if person_box is None:
-            if self.use_synthetic_frame:
-                cx, cy = 640, 380
-                person_box = [cx - 220, cy - 140, 440, 520, 0.95]
-                head_box = [cx - 130, cy - 110, 260, 240]
-                has_helmet_detected = self.forced_helmet_state
-            else:
-                return detections, False
-
-        # 4. ใส่ผลลัพธ์กรอบคน (PERSON)
-        px, py, pw, ph, p_conf = person_box
-        detections.append({
-            'class': 'person',
-            'confidence': float(p_conf),
-            'box': [int(px), int(py), int(pw), int(ph)]
-        })
-
-        # 5. กรองสถานะหมวกด้วย 7-Frame Majority Filter ป้องกันการกระพริบสลับสี
-        if self.manual_override:
-            # โหมดจำลอง: ล็อคสถานะตามที่ผู้ใช้กด H
+        # 2. โหมดภาพจำลอง (Synthetic Frame Mode)
+        if self.use_synthetic_frame:
+            cx, cy = 640, 380
             final_helmet = self.forced_helmet_state
-            conf_helmet = 0.97
-        else:
-            self.status_history.append(has_helmet_detected)
-            # ต้องมีคะแนนเสียงเกินครึ่งของ 7 เฟรมล่าสุดถึงจะเปลี่ยนสถานะ
-            final_helmet = (sum(self.status_history) / len(self.status_history)) >= 0.5
-            conf_helmet = 0.93 if final_helmet else 0.91
+            head_box = [cx - 100, cy - 130, 200, 200]
+            detections.append({
+                'class': 'helmet' if final_helmet else 'no_helmet',
+                'confidence': 0.95,
+                'box': head_box
+            })
+            return detections, (not final_helmet)
 
-        hx, hy, hw, hh = head_box
-        detections.append({
-            'class': 'helmet' if final_helmet else 'no_helmet',
-            'confidence': float(conf_helmet),
-            'box': [int(hx), int(hy), int(hw), int(hh)]
-        })
+        # 3. Fallback: ถ้าเป็นโมเดลสต็อกทั่วไป (Person + Face Cascade)
+        person_box = None
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if self.yolo_model is not None:
+            try:
+                results = self.yolo_model(frame, imgsz=480, verbose=False, conf=0.35)[0]
+                best_person_area = 0
+                for box in results.boxes:
+                    cls_id = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    xyxy = box.xyxy[0].cpu().numpy().astype(int)
+                    bx, by, bx2, by2 = xyxy
+                    bw, bh = max(10, bx2 - bx), max(10, by2 - by)
+                    if cls_id == 0:  # Person
+                        area = bw * bh
+                        if area > best_person_area:
+                            best_person_area = area
+                            person_box = [max(0, bx), max(0, by), min(w_frame - bx, bw), min(h_frame - by, bh), conf]
+            except Exception:
+                pass
 
-        violation = not final_helmet
-        return detections, violation
+        if person_box is not None:
+            raw_p_coords = person_box[:4]
+            smoothed_p = self._smooth_box(raw_p_coords, self.prev_person_box, alpha=0.60)
+            self.prev_person_box = smoothed_p
+            bx, by, bw, bh = smoothed_p
+            upper_h = int(bh * 0.60)
+            upper_roi = gray[by:by + upper_h, bx:bx + bw]
+            faces = []
+            if upper_roi.size > 0:
+                if self.face_cascade_alt is not None:
+                    faces = self.face_cascade_alt.detectMultiScale(upper_roi, scaleFactor=1.12, minNeighbors=4, minSize=(50, 50))
+                if len(faces) == 0 and self.face_cascade is not None:
+                    faces = self.face_cascade.detectMultiScale(upper_roi, scaleFactor=1.15, minNeighbors=3, minSize=(50, 50))
+
+            prop_w = max(50, int(bw * 0.42))
+            prop_h = int(prop_w * 1.18)
+            has_helmet_detected = False
+
+            if len(faces) > 0:
+                fx, fy, fw, fh = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)[0]
+                center_x = bx + fx + fw // 2
+                center_y = by + fy + int(fh * 0.35)
+                head_w = int(0.55 * int(fw * 1.45) + 0.45 * prop_w)
+                head_h = int(0.55 * int(fh * 1.65) + 0.45 * prop_h)
+                head_left = max(0, center_x - head_w // 2)
+                head_top = max(0, center_y - int(head_h * 0.55))
+                raw_head = [head_left, head_top, head_w, head_h]
+            else:
+                center_x = bx + bw // 2
+                center_y = by + int(prop_h * 0.48)
+                raw_head = [max(0, center_x - prop_w // 2), max(0, center_y - int(prop_h * 0.55)), prop_w, prop_h]
+
+            smoothed_head = self._smooth_box(raw_head, self.prev_head_box, alpha=0.60)
+            self.prev_head_box = smoothed_head
+            detections.append({
+                'class': 'helmet' if has_helmet_detected else 'no_helmet',
+                'confidence': 0.90,
+                'box': smoothed_head
+            })
+            return detections, (not has_helmet_detected)
+
+        return [], False
 
     def update_physics(self, is_violation):
         """จำลองระบบขับเคลื่อนรถมอเตอร์ไซค์ไฟฟ้าจริง พร้อมระบบตัดสตาร์ท (Start Interlock)"""
