@@ -725,14 +725,14 @@ class HelmetDetectionSystem:
                 
                 # แสดงผลหน้าต่างตรวจจับ
                 cv2.imshow('Helmet Detection System', frame)
+                key = cv2.waitKey(1) & 0xFF
 
                 try:
-                    if cv2.getWindowProperty('Helmet Detection System', cv2.WND_PROP_VISIBLE) < 1:
+                    if self.frame_count > 10 and cv2.getWindowProperty('Helmet Detection System', cv2.WND_PROP_VISIBLE) < 1:
+                        print("[INFO] ผู้ใช้ปิดหน้าต่างโปรแกรม")
                         break
                 except Exception:
                     pass
-                
-                key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
                     break
                 elif key == ord('s'):

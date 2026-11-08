@@ -75,10 +75,19 @@ class PCHelmetSimulator:
         self.camera_source = 0            # กล้องหลัก
         self.use_synthetic_frame = False  # โหมดภาพจำลองถ้าไม่มีกล้อง
         
-        # โหลด Haar Cascade สำหรับตรวจจับใบหน้าในโหมดทดสอบ
-        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        self.face_cascade = cv2.CascadeClassifier(cascade_path)
-        self.face_cascade_alt = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml')
+        # โหลด Haar Cascade สำหรับตรวจจับใบหน้าในโหมดทดสอบ (มี Fallback ป้องกัน Error)
+        self.face_cascade = None
+        self.face_cascade_alt = None
+        try:
+            if hasattr(cv2, 'data') and hasattr(cv2.data, 'haarcascades'):
+                cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+                if os.path.exists(cascade_path):
+                    self.face_cascade = cv2.CascadeClassifier(cascade_path)
+                cascade_alt = cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'
+                if os.path.exists(cascade_alt):
+                    self.face_cascade_alt = cv2.CascadeClassifier(cascade_alt)
+        except Exception:
+            pass
 
         # ระบบลดอาการสั่นของกรอบ (Exponential Moving Average Box Smoothing)
         self.prev_person_box = None
@@ -287,10 +296,11 @@ class PCHelmetSimulator:
                 upper_roi = gray[by:by + upper_h, bx:bx + bw]
                 faces = []
                 if upper_roi.size > 0:
-                    faces = self.face_cascade_alt.detectMultiScale(
-                        upper_roi, scaleFactor=1.12, minNeighbors=4, minSize=(50, 50)
-                    )
-                    if len(faces) == 0:
+                    if self.face_cascade_alt is not None:
+                        faces = self.face_cascade_alt.detectMultiScale(
+                            upper_roi, scaleFactor=1.12, minNeighbors=4, minSize=(50, 50)
+                        )
+                    if len(faces) == 0 and self.face_cascade is not None:
                         faces = self.face_cascade.detectMultiScale(
                             upper_roi, scaleFactor=1.15, minNeighbors=3, minSize=(50, 50)
                         )
@@ -924,16 +934,17 @@ class PCHelmetSimulator:
                 
                 # 6. แสดงผลหน้าต่าง
                 cv2.imshow(window_name, frame)
+                
+                # 7. จัดการคีย์บอร์ด (ประมวลผล Event queue ก่อนตรวจสอบสถานะหน้าต่าง)
+                key = cv2.waitKey(20) & 0xFF
 
-                # ตรวจจับการกดปุ่มกากบาท [X] ปิดหน้าต่าง (ป้องกันหน้าต่างค้าง Not Responding บน Windows)
+                # ตรวจจับการกดปุ่มกากบาท [X] ปิดหน้าต่าง (เริ่มตรวจสอบหลังจากเฟรมที่ 10 เป็นต้นไป)
                 try:
-                    if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                    if self.frame_count > 10 and cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                        print("[INFO] ผู้ใช้ปิดหน้าต่างโปรแกรม")
                         break
                 except Exception:
                     pass
-                
-                # 7. จัดการคีย์บอร์ด
-                key = cv2.waitKey(20) & 0xFF
                 if key == ord('q') or key == 27:  # Q หรือ Esc
                     break
                 elif key == ord('h') or key == ord('H'):
