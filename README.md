@@ -1,6 +1,6 @@
 # ระบบตรวจจับหมวกกันน็อคสำหรับรถมอเตอร์ไซค์ไฟฟ้า (EV Motorcycle Smart Helmet Interlock)
 
-ระบบตรวจจับหมวกกันน็อคแบบ Real-time ขับเคลื่อนด้วยบอร์ด **Raspberry Pi 4**, กล้องมุมกว้าง Wide-Angle, โมดูลระบุพิกัดดาวเทียม **GPS ATGM336H (NEO-M8N)** และวงจรควบคุมกล่องคอนโทรลเลอร์มอเตอร์ BLDC พร้อม **เวอร์ชันจำลองสำหรับทดสอบบนคอมพิวเตอร์ (PC Demo Simulator)**
+ระบบตรวจจับหมวกกันน็อคแบบ Real-time ขับเคลื่อนด้วยบอร์ด **Raspberry Pi 4**, กล้องมุมกว้าง Wide-Angle, โมดูลระบุพิกัดดาวเทียม **AI Vision ATGM336H (NEO-M8N)** และวงจรควบคุมกล่องคอนโทรลเลอร์มอเตอร์ BLDC พร้อม **เวอร์ชันจำลองสำหรับทดสอบบนคอมพิวเตอร์ (PC Demo Simulator)**
 
 ---
 
@@ -19,7 +19,7 @@ python pc_demo.py
 * **เรือนไมล์ดิจิทัล (EV Speedometer HUD)**: หน้าปัดมาตรวัดความเร็วแบบกราฟิกสวยงาม
 * **จำลองฟิสิกส์คันเร่งและเบรก**: กดเร่งความเร็วได้ถึง 60-75 km/h
 * **จำลองการตัดความเร็วอัตโนมัติ (Speed Limiter Relay)**: เมื่อไม่สวมหมวก ระบบจะสั่งจำลอง Relay ตัดความเร็วรถลดลงเหลือ **25 km/h** ทันที พร้อมเสียง Buzzer เตือนจริงผ่านลำโพงคอมพิวเตอร์
-* **จำลองพิกัดดาวเทียม GPS ATGM336H**: พิกัดขยับเคลื่อนที่ตามความเร็วจริงของรถ
+* **จำลองพิกัดดาวเทียม AI Vision ATGM336H**: พิกัดขยับเคลื่อนที่ตามความเร็วจริงของรถ
 * **ระบบจับเวลาสด (Live Stopwatch & Real-Time Clock)**: แสดงนาฬิกาเวลาจริง `TIME: HH:MM:SS` และระบบจับเวลาสด `STOPWATCH: MM:SS` บน Top Bar, เรือนไมล์ดิจิทัล และประทับลงบนภาพถ่ายหลักฐาน
 * **ระบบตรวจจับคน (Person & Helmet Detection)**: ใช้โมเดล YOLOv8n ตรวจจับบุคคลและหมวกกันน็อค พร้อมระบบติดตามพิกัดศีรษะตามหลักกายวิภาค ไม่วูบวาบหรือหลุดกรอบ
 * **ระบบบันทึกภาพถ่ายหลักฐานอัจฉริยะ (Smart Event-Driven Captures)**:
@@ -28,7 +28,7 @@ python pc_demo.py
   * 🚨 `mid_ride_violations/`: แอบถอดหมวกกลางคันขณะขับขี่ (ระบุความเร็วและระยะเวลาที่ขับขี่มาแล้ว)
   * 📸 `manual_snapshots/`: ภาพที่กดถ่ายด้วยตนเองผ่านปุ่ม `[S]`
   * 🌟 `all_captures/` และหน้าแรก `captures/`: รวบรวมภาพถ่ายทุกใบ ทุกเหตุการณ์ไว้ในที่เดียว ไม่ต้องคลิกแยกโฟลเดอร์ย่อย
-* **บันทึกภาพถ่ายหลักฐานพร้อมลายน้ำพิกัดและเวลาจับเวลา**: บันทึกภาพลงโฟลเดอร์ `captures/` พร้อมประทับพิกัด GPS, ความเร็ว และเวลา Stopwatch อัตโนมัติ
+* **บันทึกภาพถ่ายหลักฐานพร้อมลายน้ำพิกัดและเวลาจับเวลา**: บันทึกภาพลงโฟลเดอร์ `captures/` พร้อมประทับสถานะความปลอดภัยและความเร็ว, ความเร็ว และเวลา Stopwatch อัตโนมัติ
 
 ### ⌨️ คีย์ลัดสำหรับการสาธิต (Demo Keyboard Controls):
 | ปุ่มคีย์บอร์ด | การทำงาน |
@@ -36,7 +36,7 @@ python pc_demo.py
 | **`H`** | **สลับสถานะ สวมหมวก / ไม่สวมหมวก (Force Helmet Toggle)** *(แนะนำมากสำหรับการพรีเซนต์)* |
 | **`T` หรือ `ลูกศรขึ้น`** | **บิดคันเร่ง (เพิ่มความเร็ว)** |
 | **`B` หรือ `ลูกศรลง`** | **แตะเบรก (ลดความเร็ว)** |
-| **`S`** | **บันทึกภาพหลักฐานพร้อมลายน้ำพิกัด GPS ทันที** |
+| **`S`** | **บันทึกภาพหลักฐานพร้อมลายน้ำสถานะความปลอดภัยและความเร็ว ทันที** |
 | **`M`** | **สลับระหว่างโหมดกล้องเว็บแคมจริง กับ โหมดภาพจำลอง (Synthetic)** |
 | **`R`** | **รีเซ็ตสถิติและการละเมิด** |
 | **`Q`** | **ออกจากโปรแกรม** |
@@ -60,9 +60,9 @@ python helmet_detection.py
 | **Pin 13** | **GPIO 27** | **Active Buzzer (+)** | สัญญาณเสียงเตือนเมื่อไม่สวมหมวก |
 | **Pin 15** | **GPIO 22** | **LED เขียว (+)** | ไฟสถานะสวมหมวกนิรภัย (ปลอดภัย) |
 | **Pin 16** | **GPIO 23** | **LED แดง (+)** | ไฟสถานะไม่สวมหมวกนิรภัย (อันตราย) |
-| **Pin 8** | **GPIO 14 (TXD)** | **GPS ATGM336H (RXD)** | สื่อสารตั้งค่า GPS |
-| **Pin 10** | **GPIO 15 (RXD)** | **GPS ATGM336H (TXD)** | รับข้อมูลพิกัด NMEA จาก GPS |
-| **Pin 2 / 4** | **5V Power** | **VCC Relay, GPS, Buzzer** | ไฟเลี้ยงอุปกรณ์ 5V |
+| **Pin 8** | **GPIO 14 (TXD)** | **AI Vision ATGM336H (RXD)** | สื่อสารตั้งค่า AI Vision |
+| **Pin 10** | **GPIO 15 (RXD)** | **AI Vision ATGM336H (TXD)** | รับข้อมูลพิกัด NMEA จาก AI Vision |
+| **Pin 2 / 4** | **5V Power** | **VCC Relay, AI Vision, Buzzer** | ไฟเลี้ยงอุปกรณ์ 5V |
 | **Pin 6 / 9** | **GND** | **GND รวม** | กราวด์ร่วมระบบ |
 
 ---
@@ -72,8 +72,8 @@ python helmet_detection.py
 * 💻 **[pc_demo.py](pc_demo.py)**: โค้ดเวอร์ชันจำลองสำหรับนำเสนอบนคอมพิวเตอร์
 * 💬 **[conversation_history.md](conversation_history.md)**: **บันทึกประวัติการพูดคุยและแนวทางตอบข้อซักถามของโครงงาน (Q/A Log)**
 * 📖 **[hardware_retrofit_guide.md](hardware_retrofit_guide.md)**: **คู่มือการดัดแปลงและต่อวงจรกับรถมอเตอร์ไซค์ไฟฟ้าจริง** (วงจรภาคจ่ายไฟ 48V-72V, สเต็ปดาวน์, กล่อง Votol/Kelly, สายคันเร่ง Hall Sensor)
-* 📑 **[research_document.md](research_document.md)**: **เอกสารวิจัยประกอบโครงงาน 7 บท** (สถิติอุบัติเหตุในไทยปี 2567-2568, กฎหมาย พ.ร.บ. จราจรทางบก, ทฤษฎี YOLO/OpenCV/Edge AI, GPS ATGM336H)
-* ⚡ **[arduino/motor_controller.ino](arduino/motor_controller.ino)**: โค้ด Arduino ตัวควบคุมมอเตอร์และอ่านค่า GPS
+* 📑 **[research_document.md](research_document.md)**: **เอกสารวิจัยประกอบโครงงาน 7 บท** (สถิติอุบัติเหตุในไทยปี 2567-2568, กฎหมาย พ.ร.บ. จราจรทางบก, ทฤษฎี YOLO/OpenCV/Edge AI, AI Vision ATGM336H)
+* ⚡ **[arduino/motor_controller.ino](arduino/motor_controller.ino)**: โค้ด Arduino ตัวควบคุมมอเตอร์และอ่านค่า AI Vision
 
 ---
 
@@ -91,7 +91,7 @@ python helmet_detection.py
 ### 2. โหมดตรวจจับของจริง (Real Hardware Mode)
 ดับเบิลคลิก **[`run_real.bat`](file:///C:/Users/WINDOWS%20XI/.gemini/antigravity-ide/scratch/helmet-detection-system/run_real.bat)** (หรือรัน `./run_real.sh` บน Raspberry Pi)
 * สตาร์ท WebApp Server อัตโนมัติ
-* เปิดระบบตรวจจับกล้องจริง + GPS จริง (`helmet_detection.py`)
+* เปิดระบบตรวจจับกล้องจริง + AI Vision จริง (`helmet_detection.py`)
 * ส่งพิกัดและสถานะจริงเข้า WebApp แบบ Real-time 100% Offline!
 
 ---
@@ -105,7 +105,7 @@ helmet-detection-system/
 ├── run_real.sh                 # 🐧 สคริปต์เปิดโหมดของจริงบน Raspberry Pi 4 (Linux)
 ├── pc_demo.py                  # 💻 โปรแกรมจำลองและสาธิตสำหรับคอมพิวเตอร์ (PC Demo)
 ├── helmet_detection.py         # 🛵 โปรแกรมหลักสำหรับติดตั้งบน Raspberry Pi 4 บนรถจริง
-├── webapp/                     # 🗺️ ระบบ GPS Geofence Monitor (100% Offline)
+├── webapp/                     # 🗺️ ระบบ AI VisionGeofence Monitor (100% Offline)
 │   ├── server.py               # Flask WebSocket Server + Telemetry Bridge
 │   ├── geofence.py             # Haversine Distance + Circle Geofence Module
 │   └── templates/
@@ -117,6 +117,6 @@ helmet-detection-system/
 ├── README.md                  # เอกสารแนะนำและคู่มือการใช้งาน
 ├── arduino/
 │   └── motor_controller.ino    # โค้ดไมโครคอนโทรลเลอร์ (Arduino Option)
-├── logs/                      # บันทึกประวัติการละเมิดพร้อมพิกัด GPS (JSON)
+├── logs/                      # บันทึกประวัติการละเมิดพร้อมสถานะความปลอดภัยและความเร็ว (JSON)
 └── captures/                  # ภาพถ่ายหลักฐานพร้อมลายน้ำพิกัด (JPG)
 ```

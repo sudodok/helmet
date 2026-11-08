@@ -1,7 +1,7 @@
 # 🛵 คู่มือการดัดแปลงและต่อวงจรกับรถมอเตอร์ไซค์ไฟฟ้าจริง
 # Real Electric Motorcycle Retrofit & Hardware Wiring Guide
 
-คู่มือฉบับนี้อธิบายการต่อวงจรและดัดแปลงระบบไฟของรถมอเตอร์ไซค์ไฟฟ้าจริง เพื่อเชื่อมต่อกับบอร์ด **Raspberry Pi 4**, โมดูล **GPS ATGM336H**, กล้องตรวจจับ, และ **กล่องควบคุมมอเตอร์ BLDC (Motor Controller)**
+คู่มือฉบับนี้อธิบายการต่อวงจรและดัดแปลงระบบไฟของรถมอเตอร์ไซค์ไฟฟ้าจริง เพื่อเชื่อมต่อกับบอร์ด **Raspberry Pi 4**, โมดูล **AI Vision ATGM336H**, กล้องตรวจจับ, และ **กล่องควบคุมมอเตอร์ BLDC (Motor Controller)**
 
 ---
 
@@ -23,7 +23,7 @@
           │  (ระบบตรวจจับ AI + ควบคุมความเร็ว)    │
           └─────┬──────────────┬────────────┬─┘
                 │              │            │
-    [กล้องมุมกว้าง 120°]  [GPS ATGM336H]  [GPIO Control]
+    [กล้องมุมกว้าง 120°]  [AI Vision ATGM336H]  [GPIO Control]
    (USB / CSI Camera)  (UART TXD/RXD)       │
                                             ├─────▶ [Buzzer 5V] (GPIO 27)
                                             ├─────▶ [LED เขียว/แดง] (GPIO 22, 23)
@@ -110,7 +110,7 @@
 
 ---
 
-## 4. การต่อโมดูล GPS ATGM336H (NEO-M8N) กับ Raspberry Pi 4
+## 4. การต่อระบบความปลอดภัย AI Vision Interlock (NEO-M8N) กับ Raspberry Pi 4
 
 ### การตั้งค่าพอร์ต Serial บน Raspberry Pi:
 1. เปิด Terminal บน Raspberry Pi 4 รันคำสั่ง:
@@ -122,8 +122,8 @@
    - "Would you like the serial port hardware to be enabled?" → ตอบ **Yes**
 3. บันทึกและรีบูตบอร์ด พอร์ต UART จะพร้อมใช้งานที่ `/dev/ttyAMA0` หรือ `/dev/serial0`
 
-### การต่อขา GPS:
-| ขาโมดูล GPS ATGM336H | ขาบน Raspberry Pi 4 | หมายเหตุ |
+### การต่อขา AI Vision:
+| ขาระบบความปลอดภัย AI Vision Interlock | ขาบน Raspberry Pi 4 | หมายเหตุ |
 |----------------------|---------------------|---------|
 | VCC | Pin 2 (5V Power) หรือ Pin 1 (3.3V) | รองรับ 3.3V - 5V |
 | GND | Pin 6 (GND) | กราวด์ร่วม |
@@ -137,10 +137,10 @@
 
 | ขาทางกายภาพ (Physical Pin) | หมายเลข GPIO | อุปกรณ์ที่เชื่อมต่อ | รายละเอียดการทำงาน |
 |:---:|:---:|---|---|
-| Pin 2 | 5V | VCC Relay, GPS, Buzzer | แหล่งจ่ายไฟ 5V ในระบบ |
+| Pin 2 | 5V | VCC Relay, AI Vision, Buzzer | แหล่งจ่ายไฟ 5V ในระบบ |
 | Pin 6 | GND | GND รวมทุกอุปกรณ์ | กราวด์ร่วม |
-| Pin 8 | GPIO 14 (TXD) | GPS RXD | สื่อสารข้อมูล GPS |
-| Pin 10 | GPIO 15 (RXD) | GPS TXD | สื่อสารข้อมูล GPS |
+| Pin 8 | GPIO 14 (TXD) | AI Vision RXD | สื่อสารข้อมูล AI Vision |
+| Pin 10 | GPIO 15 (RXD) | AI Vision TXD | สื่อสารข้อมูล AI Vision |
 | Pin 11 | GPIO 17 | Relay IN (Speed Limit) | ส่ง HIGH/LOW เพื่อสั่งจำกัดความเร็ว |
 | Pin 13 | GPIO 27 | Buzzer (+) | เสียงเตือนเมื่อไม่สวมหมวก |
 | Pin 15 | GPIO 22 | LED เขียว (+) | ไฟเขียว: สวมหมวกนิรภัย (ปลอดภัย) |

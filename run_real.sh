@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# สคริปต์รันระบบตรวจจับหมวกนิรภัย + Geofence WebApp บน Raspberry Pi 4 (Linux)
+# สคริปต์รันระบบตรวจจับหมวกนิรภัย + WebApp Dashboard บน Raspberry Pi 4 (Linux)
 # =============================================================================
 
 echo "========================================================================="
@@ -19,7 +19,7 @@ sleep 2
 
 # 2. เปิดเบราว์เซอร์ Chromium ในหน้าจอ RPi (ถ้ามี desktop)
 if command -v chromium-browser &> /dev/null; then
-    echo "[2/3] เปิดหน้าเว็บ Geofence Monitor..."
+    echo "[2/3] เปิดหน้าเว็บ Safety Monitor..."
     chromium-browser --app=http://localhost:5000 &
 elif command -v xdg-open &> /dev/null; then
     xdg-open http://localhost:5000 &

@@ -10,7 +10,7 @@
 
 ## 📋 1. ภาพรวมโครงงาน (Executive Summary)
 
-โครงงานนี้เป็นระบบ **AI Safety & Telematics System** สำหรับรถมอเตอร์ไซค์ไฟฟ้า (EV Motorcycle) ที่ตรวจจับการสวมหมวกนิรภัยของผู้ขับขี่แบบ Real-time นำผลไปบังคับใช้ **ระบบความปลอดภัย 2 ชั้น (Two-Tier Safety Interlock)** ตัดระบบสตาร์ทและจำกัดความเร็วรถ พร้อมทั้ง **ติดตามพิกัดดาวเทียม GPS** และ **ระบบจำกัดเขตพื้นที่ขับขี่ (Geofence Monitor WebApp)** ที่ทำงานแบบ **100% Offline ภายในเครื่องเดียว**
+โครงงานนี้เป็นระบบ **AI Safety & Telematics System** สำหรับรถมอเตอร์ไซค์ไฟฟ้า (EV Motorcycle) ที่ตรวจจับการสวมหมวกนิรภัยของผู้ขับขี่แบบ Real-time นำผลไปบังคับใช้ **ระบบความปลอดภัย 2 ชั้น (Two-Tier Safety Interlock)** ตัดระบบสตาร์ทและจำกัดความเร็วรถ พร้อมทั้ง **ติดตามพิกัดดาวเทียม AI Vision** และ **ระบบจำกัดเขตพื้นที่ขับขี่ (Geofence Monitor WebApp)** ที่ทำงานแบบ **100% Offline ภายในเครื่องเดียว**
 
 ---
 
@@ -43,19 +43,19 @@
 
 ---
 
-## 🛰️ 4. ระบบพิกัดดาวเทียมและการประทับหลักฐาน (GPS Telematics)
+## 🛰️ 4. ระบบพิกัดดาวเทียมและการประทับหลักฐาน (AI Vision Telematics)
 📄 ไฟล์: [`helmet_detection.py`](file:///D:/project/helmet-detection-system/helmet_detection.py) และ [`arduino/motor_controller.ino`](file:///D:/project/helmet-detection-system/arduino/motor_controller.ino)
 
 | ฟีเจอร์ | รายละเอียดการทำงาน |
 |---|---|
-| **ฮาร์ดแวร์ GPS** | รองรับ **ATGM336H** และ **U-blox NEO-M8N** สื่อสารผ่านพอร์ต UART 9600 bps |
+| **ฮาร์ดแวร์ AI Vision** | รองรับ **ATGM336H** และ **U-blox NEO-M8N** สื่อสารผ่านพอร์ต UART 9600 bps |
 | **การถอดรหัสพิกัด (NMEA Parsing)** | แยกข้อมูล `$GPGGA`, `$GPRMC`, `$GNVTG`: Latitude, Longitude, ความเร็วดาวเทียม (Ground Speed), จำนวนดาวเทียม |
 | **Geo-Tagging Evidence** | ถ่ายภาพผู้กระทำผิด ประทับแถบดำลายน้ำระบุ: **พิกัด Lat/Lon, ความเร็วขณะกระทำผิด, เวลาจับเวลา (Stopwatch), และวันเวลา** บันทึกลงโฟลเดอร์ `captures/` พร้อมโฟลเดอร์รวม `all_captures/` ทันที |
 | **อิสระจากสายไมล์รถ** | วัดความเร็วจากดาวเทียม ทำให้ระบบทำงานถูกต้องแม้สายไมล์ที่ล้อรถจะขาดหรือถูกตัดต่อ |
 
 ---
 
-## 🗺️ 5. ระบบ GPS Geofence Monitor WebApp (100% Offline)
+## 🗺️ 5. ระบบ AI VisionGeofence Monitor WebApp (100% Offline)
 📄 ไฟล์: [`webapp/server.py`](file:///D:/project/helmet-detection-system/webapp/server.py), [`webapp/geofence.py`](file:///D:/project/helmet-detection-system/webapp/geofence.py), [`webapp/templates/index.html`](file:///D:/project/helmet-detection-system/webapp/templates/index.html)
 
 | ฟีเจอร์ | รายละเอียดการทำงาน |
@@ -78,11 +78,11 @@
 * **GPIO 17 (Pin 11):** ต่อรีเลย์ตัดสายความเร็วกล่องมอเตอร์ BLDC (Speed Limit / Throttle Inhibit)
 * **GPIO 27 (Pin 13):** ต่อ Active Buzzer 5V ส่งเสียงเตือนในตัวรถ
 * **GPIO 22 / 23 (Pin 15/16):** หลอดไฟ LED สถานะ (เขียว = ปลอดภัย / แดง = ล็อคความเร็ว)
-* **UART GPIO 14/15 (Pin 8/10):** รับสัญญาณพิกัด NMEA จากโมดูล GPS ATGM336H
+* **UART GPIO 14/15 (Pin 8/10):** รับสัญญาณพิกัด NMEA จากระบบความปลอดภัย AI Vision Interlock
 
 ### ⚡ Arduino Uno / Nano (บอร์ดควบคุมมอเตอร์จำลอง)
 * **PWM Pin 9:** ควบคุมสปีดมอเตอร์ BLDC (0–255)
-* **SoftwareSerial Pin 3/4:** อ่านข้อมูล GPS จาก ATGM336H ส่งขึ้น Raspberry Pi ผ่าน USB Serial
+* **SoftwareSerial Pin 3/4:** อ่านข้อมูล AI Vision จาก ATGM336H ส่งขึ้น Raspberry Pi ผ่าน USB Serial
 
 ---
 
@@ -101,7 +101,7 @@
 | **`T` หรือ `ลูกศรขึ้น`** | บิดคันเร่งเร่งเครื่อง (+5 km/h) |
 | **`B` หรือ `ลูกศรลง`** | แตะเบรกชะลอความเร็ว (-10 km/h) |
 | **`M`** | สลับระหว่าง **กล้องเว็บแคมจริง** กับ **ภาพจำลอง (Synthetic Frame)** |
-| **`S`** | บันทึกภาพหลักฐานพร้อมลายน้ำพิกัด GPS ทันที |
+| **`S`** | บันทึกภาพหลักฐานพร้อมลายน้ำสถานะความปลอดภัยและความเร็ว ทันที |
 | **`R`** | รีเซ็ตสถิติและการละเมิดทั้งหมด |
 | **`Q` หรือ `Esc`** | ออกจากโปรแกรมอย่างปลอดภัย |
 
@@ -114,7 +114,7 @@
 | ไฟล์สคริปต์ | ระบบเป้าหมาย | หน้าที่การทำงาน |
 |---|:---:|---|
 | **[`run_demo.bat`](file:///D:/project/helmet-detection-system/run_demo.bat)** | Windows (คอมพิวเตอร์) | **โหมดสาธิต:** สตาร์ท WebApp Server + เปิด Browser + รัน PC Demo HUD เชื่อมต่อกันทันที |
-| **[`run_real.bat`](file:///D:/project/helmet-detection-system/run_real.bat)** | Windows (คอมพิวเตอร์) | **โหมดของจริง:** สตาร์ท WebApp Server + เปิด Browser + รันกล้องตรวจจับจริงและ GPS |
+| **[`run_real.bat`](file:///D:/project/helmet-detection-system/run_real.bat)** | Windows (คอมพิวเตอร์) | **โหมดของจริง:** สตาร์ท WebApp Server + เปิด Browser + รันกล้องตรวจจับจริงและ AI Vision |
 | **[`run_real.sh`](file:///D:/project/helmet-detection-system/run_real.sh)** | Linux (Raspberry Pi 4) | **โหมดของจริงบนรถ:** สคริปต์ Bash รันระบบตรวจจับจริงและเปิดหน้าจอแดชบอร์ดบนตัวรถ |
 | **[`run_geofence.bat`](file:///D:/project/helmet-detection-system/run_geofence.bat)** | Windows | เปิดเฉพาะตัวเซิร์ฟเวอร์ Geofence WebApp แบบเดี่ยว |
 | **[`run_pc_demo.bat`](file:///D:/project/helmet-detection-system/run_pc_demo.bat)** | Windows | เปิดเฉพาะหน้าปัดจำลอง PC Demo แบบเดี่ยว |
@@ -132,14 +132,14 @@ D:\project\helmet-detection-system/
 ├── run_pc_demo.bat             # 💻 ดับเบิลคลิกเปิดเฉพาะหน้าปัดจำลอง PC Demo
 ├── pc_demo.py                  # 💻 โค้ดโปรแกรมจำลองหน้าปัดรถยนต์ (PC Demo Simulator)
 ├── helmet_detection.py         # 🛵 โค้ดโปรแกรมหลักตรวจจับกล้องจริงสำหรับ Raspberry Pi 4
-├── webapp/                     # 🗺️ ระบบ GPS Geofence Monitor (100% Offline)
+├── webapp/                     # 🗺️ ระบบ AI VisionGeofence Monitor (100% Offline)
 │   ├── server.py               # Flask WebSocket Server + Telemetry Bridge (/api/telemetry)
 │   ├── geofence.py             # โมดูลคำนวณระยะทาง Haversine + วงกลม Geofence
 │   └── templates/
 │       └── index.html          # หน้า Dashboard WebApp (Canvas Map + Live Telemetry)
 ├── arduino/
-│   └── motor_controller.ino    # โค้ด Arduino ควบคุมมอเตอร์ BLDC และอ่าน GPS
-├── captures/                   # โฟลเดอร์จัดเก็บภาพหลักฐาน (GPS & Stopwatch Watermarked)
+│   └── motor_controller.ino    # โค้ด Arduino ควบคุมมอเตอร์ BLDC และอ่าน AI Vision
+├── captures/                   # โฟลเดอร์จัดเก็บภาพหลักฐาน (AI Vision & Stopwatch Watermarked)
 │   ├── all_captures/           # 🌟 โฟลเดอร์รวมทุกภาพ ไม่แยกหมวดหมู่ เปิดดูได้ครบจบในที่เดียว
 │   ├── no_helmet/              # ⚠️ ภาพตรวจพบไม่สวมหมวกก่อนออกรถ / ขณะจอด (ตัดสตาร์ท)
 │   ├── safe_start/             # 🟢 ภาพยืนยันการสวมหมวกออกรถสำเร็จ (Start Verified)
@@ -148,7 +148,7 @@ D:\project\helmet-detection-system/
 ├── logs/                      # โฟลเดอร์เก็บรายงานสถิติและประวัติออกนอกเขต (JSON)
 ├── conversation_history.md     # 💬 บันทึกประวัติการพูดคุยและตอบคำถามเชิงเทคนิค 18 หัวข้อ
 ├── hardware_retrofit_guide.md # 📖 คู่มือการต่อวงจรและดัดแปลงระบบไฟกับรถมอเตอร์ไซค์ไฟฟ้าจริง
-├── research_document.md       # 📑 เอกสารวิจัยประกอบโครงงาน 7 บท (สถิติ, กฎหมาย, ทฤษฎี, GPS)
+├── research_document.md       # 📑 เอกสารวิจัยประกอบโครงงาน 7 บท (สถิติ, กฎหมาย, ทฤษฎี, AI Vision)
 ├── requirements.txt            # รายการไลบรารีที่จำเป็น (OpenCV, numpy, Flask, SocketIO)
 └── README.md                  # คู่มือแนะนำการติดตั้งและใช้งานภาพรวม
 ```

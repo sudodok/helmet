@@ -5,13 +5,13 @@ cd /d "%~dp0"
 echo =========================================================================
 echo   HELMET DETECTION SYSTEM - REAL HARDWARE MODE
 echo   1. Starting WebApp Server (http://localhost:5000)...
-echo   2. Opening Real Helmet Detection (Camera + GPS)...
+echo   2. Opening Real Helmet Detection (Camera + Hardware Interlock)...
 echo =========================================================================
 echo.
 
 REM 1. Start WebApp Server in minimized window
 echo [1/3] Starting WebApp Server...
-start "Helmet Geofence Server" /min python webapp\server.py
+start "Helmet Telemetry Server" /min python webapp\server.py
 
 REM 2. Wait 2 seconds and open browser
 ping 127.0.0.1 -n 3 > nul
@@ -32,6 +32,6 @@ python helmet_detection.py
 
 echo.
 echo [INFO] Stopping WebApp Server...
-taskkill /f /fi "WINDOWTITLE eq Helmet Geofence Server*" > nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq Helmet Telemetry Server*" > nul 2>&1
 echo [DONE] Finished.
 pause
