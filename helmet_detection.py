@@ -78,14 +78,7 @@ class HelmetDetectionSystem:
         self.frame_count = 0
         self.start_time = time.time()
         
-        # สถานะ GPS (ATGM336H / NEO-M8N)
-        self.current_gps = {
-            'lat': 13.7563,
-            'lon': 100.5018,
-            'speed': 0.0,
-            'satellites': 8,
-            'fix': True
-        }
+        self.current_speed = 0.0
         
         # สถานะหมวกนิรภัยล่าสุด
         self.last_helmet_status = True
@@ -113,19 +106,16 @@ class HelmetDetectionSystem:
         self._init_telemetry()
 
     def _init_telemetry(self):
-        """เริ่มเธรดส่งข้อมูลพิกัด GPS จริงและความเร็วไปยัง WebApp Server แบบ Real-time"""
+        """เริ่มเธรดส่งข้อมูลข้อมูลสถานะความเร็วและความปลอดภัยไปยัง WebApp Server แบบ Real-time"""
         import urllib.request
         def telemetry_worker():
             while True:
                 time.sleep(0.4)
                 try:
                     payload = json.dumps({
-                        'lat': self.current_gps['lat'],
-                        'lon': self.current_gps['lon'],
-                        'speed': self.current_gps['speed'],
+                        'speed': self.current_speed,
                         'helmet': self.last_helmet_status,
                         'engine_locked': not self.engine_started,
-                        'satellites': self.current_gps['satellites'],
                         'source': 'Raspberry Pi System'
                     }).encode('utf-8')
                     req = urllib.request.Request(
@@ -176,13 +166,7 @@ class HelmetDetectionSystem:
                 'capture_violation': True,
                 'sound_alert': True
             },
-            'gps': {
-                'enabled': True,
-                'module': 'ATGM336H / NEO-M8N',
-                'default_lat': 13.75633,
-                'default_lon': 100.50177
-            },
-            'electric_motorcycle': {
+'electric_motorcycle': {
                 'speed_limit_no_helmet': 25,  # km/h
                 'auto_limit_speed': True,
                 'serial_port': '/dev/ttyAMA0' if RPI_AVAILABLE else '/dev/ttyUSB0',
@@ -503,7 +487,7 @@ class HelmetDetectionSystem:
             (f"Clock Time: {now_time_str}", (255, 255, 255)),
             (f"Stopwatch ({timer_label}): {stopwatch_display}", timer_color),
             (f"Engine: {engine_status}", (0, 255, 0) if self.engine_started else (0, 0, 255)),
-            (f"Speed: {self.current_gps['speed']:.1f} km/h", (100, 240, 255)),
+            (f"Speed: {self.current_speed:.1f} km/h", (100, 240, 255)),
             (f"Violations: {len(self.alert_log)}", (255, 180, 0))
         ]
 
@@ -515,7 +499,7 @@ class HelmetDetectionSystem:
     def process_violation(self, frame, detections):
         """บันทึกข้อมูลและภาพถ่ายหลักฐานการละเมิด"""
         timestamp = datetime.now()
-        speed = self.current_gps['speed']
+        speed = self.current_speed
         now = time.time()
 
         is_mid_ride = self.engine_started or (speed > 3.0)
@@ -531,13 +515,7 @@ class HelmetDetectionSystem:
             'timestamp': timestamp.isoformat(),
             'frame_number': self.frame_count,
             'trip_duration': trip_str if is_mid_ride else "00m 00s",
-            'gps': {
-                'latitude': self.current_gps['lat'],
-                'longitude': self.current_gps['lon'],
-                'speed_kmh': speed,
-                'satellites': self.current_gps['satellites'],
-                'module': self.config.get('gps', {}).get('module', 'ATGM336H / NEO-M8N')
-            },
+            'speed_kmh': speed,
             'detections': [{
                 'class': d['class'],
                 'confidence': d['confidence'],
@@ -572,7 +550,7 @@ class HelmetDetectionSystem:
         cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), (0, 0, 255), -1)
 
         dur_text = f"TRIP: {trip_str}" if violation_type == "MID_RIDE_HELMET_REMOVAL" else "PRE-START: 00m 00s"
-        watermark_text = f"[VIOLATION] {violation_type} | {dur_text} | SPEED: {self.current_gps['speed']:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+        watermark_text = f"[VIOLATION] {violation_type} | {dur_text} | SPEED: {self.current_speed:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
         cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
         cv2.imwrite(filename, annotated_frame)
@@ -588,7 +566,7 @@ class HelmetDetectionSystem:
 
         cv2.rectangle(annotated_frame, (0, h - 45), (w, h), (15, 15, 15), -1)
         cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), (0, 200, 0), -1)
-        watermark_text = f"[PASS] SAFE START | HELMET VERIFIED | STOPWATCH: 00m 00s | SPEED: {self.current_gps['speed']:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+        watermark_text = f"[PASS] SAFE START | HELMET VERIFIED | STOPWATCH: 00m 00s | SPEED: {self.current_speed:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
         cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
         cv2.imwrite(filename, annotated_frame)
@@ -677,12 +655,6 @@ class HelmetDetectionSystem:
                     inst_fps = 1.0 / dt
                     self.fps_smooth = 0.9 * self.fps_smooth + 0.1 * inst_fps if self.fps_smooth > 0 else inst_fps
                 
-                # อ่านอัปเดตข้อมูลพิกัดจาก GPS ATGM336H จริง (ถ้ามี)
-                if self.controller and self.controller.is_connected:
-                    gps_update = self.controller.read_gps_data()
-                    if gps_update:
-                        self.current_gps.update(gps_update)
-                
                 # เทคนิคข้ามเฟรม (Frame Skipping): สลับรัน AI ทุก N เฟรม รักษาอัตรา 30 FPS ไม่กระตุก
                 if self.frame_count % self.inference_interval == 0:
                     t_infer_start = time.time()
@@ -749,7 +721,7 @@ class HelmetDetectionSystem:
                     h, w = annotated_frame.shape[:2]
                     cv2.rectangle(annotated_frame, (0, h - 45), (w, h), (15, 15, 15), -1)
                     cv2.rectangle(annotated_frame, (0, h - 45), (w, h - 43), banner_col, -1)
-                    watermark_text = f"MANUAL SNAPSHOT | {status_text} | STOPWATCH: {dur_str} | SPEED: {self.current_gps['speed']:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                    watermark_text = f"MANUAL SNAPSHOT | {status_text} | STOPWATCH: {dur_str} | SPEED: {self.current_speed:.1f} km/h | TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
                     cv2.putText(annotated_frame, watermark_text, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 255), 1)
 
                     cv2.imwrite(filename, annotated_frame)
@@ -782,8 +754,7 @@ class HelmetDetectionSystem:
                 'average_fps': round(self.frame_count / elapsed, 2) if elapsed > 0 else 0,
                 'total_violations': len(self.alert_log),
                 'mode': self.model_engine_name,
-                'gps_module': self.config.get('gps', {}).get('module', 'ATGM336H / NEO-M8N'),
-                'last_known_gps': self.current_gps
+                'speed_kmh': self.current_speed
             },
             'violations': self.alert_log
         }
@@ -921,37 +892,7 @@ class ElectricMotorcycleController:
             
         print(f"[HARDWARE ALERT] 🚨 ส่งสัญญาณเตือนฮาร์ดแวร์ (LED Red + Buzzer Beep) | โหมด: {'ถอดหมวกกลางคัน' if is_mid_ride else 'ไม่สวมหมวกก่อนออกรถ'}")
 
-    def read_gps_data(self):
-        """อ่านพิกัดจริงจากโมดูล GPS ผ่านสาย Serial UART (NMEA 0183 standard)"""
-        if not (self.is_connected and self.serial):
-            return None
-            
-        try:
-            if self.serial.in_waiting > 0:
-                line = self.serial.readline().decode('ascii', errors='ignore').strip()
-                if line.startswith('$GPRMC') or line.startswith('$GNRMC'):
-                    parts = line.split(',')
-                    if len(parts) > 7 and parts[2] == 'A':
-                        lat_raw, lat_dir = parts[3], parts[4]
-                        lon_raw, lon_dir = parts[5], parts[6]
-                        speed_knots = float(parts[7]) if parts[7] else 0.0
-                        
-                        lat_deg = float(lat_raw[:2]) + float(lat_raw[2:]) / 60.0
-                        if lat_dir == 'S': lat_deg = -lat_deg
-                        
-                        lon_deg = float(lon_raw[:3]) + float(lon_raw[3:]) / 60.0
-                        if lon_dir == 'W': lon_deg = -lon_deg
-                        
-                        speed_kmh = speed_knots * 1.852
-                        return {
-                            'lat': lat_deg,
-                            'lon': lon_deg,
-                            'speed': speed_kmh,
-                            'fix': True
-                        }
-        except Exception:
-            pass
-        return None
+
 
     def disconnect(self):
         """ตัดการเชื่อมต่อและคืนค่าพิน GPIO ปลอดภัย"""

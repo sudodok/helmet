@@ -8,8 +8,7 @@ Helmet Detection System - PC Simulation & Demonstration
 - จำลองระบบคันเร่งและความเร็ว (Speed & Throttle Physics)
 - จำลองการตัดความเร็วอัตโนมัติ 25 km/h เมื่อไม่สวมหมวก (Speed Limiter Relay)
 - จำลองสัญญาณเสียง Buzzer (เตือนจริงผ่านลำโพงคอมพิวเตอร์) และไฟ LED เสมือน
-- จำลองการรับสัญญาณพิกัดดาวเทียม GPS ATGM336H พร้อมการเคลื่อนที่จริง
-- ประทับลายน้ำพิกัด GPS บนภาพหลักฐานลงโฟลเดอร์ captures/
+- ประทับลายน้ำเวลาและความเร็วบนภาพหลักฐานลงโฟลเดอร์ captures/
 - ปุ่มคีย์ลัดสำหรับสาธิตให้ครูดูได้ทันที แม้ไม่มีหมวกกันน็อคจริง
 =============================================================================
 """
@@ -62,12 +61,6 @@ class PCHelmetSimulator:
         self.virtual_buzzer_active = False # เสียงเตือน
         self.virtual_led_green = True     # ไฟเขียว (ปลอดภัย)
         self.virtual_led_red = False      # ไฟแดง (อันตราย)
-
-        # 4. สถานะ GPS ATGM336H เสมือนจริง
-        self.gps_lat = 13.756331          # พิกัดจำลอง (กรุงเทพฯ)
-        self.gps_lon = 100.501765
-        self.gps_satellites = 9
-        self.gps_fix = True
 
         # 5. การตรวจจับและโหมดสาธิต (Demo Controls)
         self.manual_override = False      # โหมดควบคุมเองสำหรับสาธิต
@@ -151,12 +144,9 @@ class PCHelmetSimulator:
                 time.sleep(0.3)
                 try:
                     payload = json.dumps({
-                        'lat': self.gps_lat,
-                        'lon': self.gps_lon,
                         'speed': self.current_speed,
                         'helmet': not (self.is_violation_active or self.engine_locked),
                         'engine_locked': self.engine_locked,
-                        'satellites': self.gps_satellites,
                         'source': 'PC Demo Simulator'
                     }).encode('utf-8')
                     req = urllib.request.Request(
@@ -465,11 +455,6 @@ class PCHelmetSimulator:
             else:
                 self.current_speed = max(0.0, self.current_speed - 0.4)
 
-        # จำลองการเคลื่อนที่ของ GPS ตามความเร็วจริง
-        speed_deg_factor = (self.current_speed / 3600.0) * 0.009
-        self.gps_lat += speed_deg_factor * 0.04
-        self.gps_lon += speed_deg_factor * 0.08
-
     def _save_evidence_image(self, frame, detections, filename, watermark_text, banner_color=(0, 0, 255)):
         """วาดกรอบตรวจจับและแถบลายน้ำลงบนภาพ แล้วบันทึกลงโฟลเดอร์ captures/"""
         evidence_frame = frame.copy()
@@ -517,7 +502,7 @@ class PCHelmetSimulator:
             cv2.putText(evidence_frame, label, (bx + 5, max(18, by - 8)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.48, text_color, 2)
 
-        # 2. วาดแถบดำคาดด้านล่างสำหรับลายน้ำพิกัด GPS และหลักฐาน
+        # 2. วาดแถบดำคาดด้านล่างสำหรับลายน้ำสถานะและหลักฐาน
         cv2.rectangle(evidence_frame, (0, h - 48), (w, h), (15, 15, 15), -1)
         cv2.rectangle(evidence_frame, (0, h - 48), (w, h - 46), banner_color, -1)
 
@@ -548,7 +533,7 @@ class PCHelmetSimulator:
                 filename = os.path.join(self.captures_dir, 'safe_start', f"start_verified_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
                 watermark = (
                     f"[PASS] SAFE START | HELMET VERIFIED | STOPWATCH: 00m 00s | "
-                    f"SPEED: {self.current_speed:.1f} KM/H | GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
+                    f"SPEED: {self.current_speed:.1f} KM/H | "
                     f"TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 self._save_evidence_image(frame, detections, filename, watermark, banner_color=(0, 200, 0))
@@ -570,7 +555,7 @@ class PCHelmetSimulator:
                 filename = os.path.join(self.captures_dir, 'mid_ride_violations', f"mid_ride_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
                 watermark = (
                     f"[ALERT] MID-RIDE HELMET REMOVAL | STOPWATCH: {trip_str} | "
-                    f"SPEED: {self.current_speed:.1f} KM/H | GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
+                    f"SPEED: {self.current_speed:.1f} KM/H | "
                     f"TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 self._save_evidence_image(frame, detections, filename, watermark, banner_color=(0, 0, 255))
@@ -583,11 +568,7 @@ class PCHelmetSimulator:
                     'timestamp': timestamp.isoformat(),
                     'speed_kmh': round(self.current_speed, 1),
                     'trip_duration': trip_str,
-                    'gps': {
-                        'latitude': round(self.gps_lat, 6),
-                        'longitude': round(self.gps_lon, 6),
-                        'satellites': self.gps_satellites
-                    },
+
                     'image_file': filename
                 }
                 self.violations_log.append(violation_data)
@@ -602,7 +583,7 @@ class PCHelmetSimulator:
                 filename = os.path.join(self.captures_dir, 'no_helmet', f"no_helmet_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
                 watermark = (
                     f"[ALERT] NO HELMET DETECTED | STOPWATCH: {sys_stopwatch_str} | ENGINE LOCKED | "
-                    f"SPEED: {self.current_speed:.1f} KM/H | GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
+                    f"SPEED: {self.current_speed:.1f} KM/H | "
                     f"TIME: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 self._save_evidence_image(frame, detections, filename, watermark, banner_color=(0, 0, 255))
@@ -615,11 +596,7 @@ class PCHelmetSimulator:
                     'timestamp': timestamp.isoformat(),
                     'speed_kmh': round(self.current_speed, 1),
                     'stopwatch_duration': sys_stopwatch_str,
-                    'gps': {
-                        'latitude': round(self.gps_lat, 6),
-                        'longitude': round(self.gps_lon, 6),
-                        'satellites': self.gps_satellites
-                    },
+
                     'image_file': filename
                 }
                 self.violations_log.append(violation_data)
@@ -647,7 +624,6 @@ class PCHelmetSimulator:
         watermark = (
             f"MANUAL SNAPSHOT | {status_text} | SPEED: {self.current_speed:.1f} KM/H | "
             f"STOPWATCH: {dur_str} | "
-            f"GPS: {self.gps_lat:.6f} N, {self.gps_lon:.6f} E | "
             f"{timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
         )
         self._save_evidence_image(frame, detections, filename, watermark, banner_color=banner_col)
@@ -874,7 +850,7 @@ class PCHelmetSimulator:
                 cv2.putText(frame, "STAGE 1: RED LED ALERT  |  STAGE 2: BUZZER ALARM SOUND", (ab_x + 30, ab_y + 52),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.46, (255, 255, 0), 2)
 
-        # 6. แถบล่างสุด: พิกัด GPS แบบ Real-time และแถบวิธีใช้งาน
+        # 6. แถบล่างสุด: สถานะระบบและความเร็วแบบ Real-time และแถบวิธีใช้งาน
         overlay4 = frame.copy()
         cv2.rectangle(overlay4, (0, h - 50), (w, h), (10, 10, 15), -1)
         cv2.addWeighted(overlay4, 0.9, frame, 0.1, 0, frame)
@@ -903,7 +879,7 @@ class PCHelmetSimulator:
         print("   [H] : สลับสถานะ สวมหมวก / ไม่สวมหมวก (Force Helmet Toggle)")
         print("   [T] หรือ [Up]   : บิดคันเร่ง (เพิ่มความเร็ว)")
         print("   [B] หรือ [Down] : แตะเบรก (ลดความเร็ว)")
-        print("   [S] : บันทึกภาพถ่ายหลักฐานพร้อมลายน้ำพิกัด GPS ทันที")
+        print("   [S] : บันทึกภาพถ่ายหลักฐานพร้อมลายน้ำเวลาและความเร็วทันที")
         print("   [R] : รีเซ็ตสถิติและการละเมิด")
         print("   [M] : สลับโหมดกล้องจริง / โหมดภาพจำลอง (Camera / Synthetic)")
         print("   [Q] : ออกจากโปรแกรม")
@@ -923,7 +899,7 @@ class PCHelmetSimulator:
                 # 2. วิเคราะห์หมวกนิรภัย
                 detections, violation = self.analyze_frame(frame)
                 
-                # 3. คำนวณฟิสิกส์ความเร็วและ GPS
+                # 3. คำนวณฟิสิกส์ความเร็วของรถ
                 self.update_physics(violation)
                 
                 # 4. ระบบบันทึกภาพอัจฉริยะตามเหตุการณ์จริง (Smart Event-Driven Capture)
@@ -1010,7 +986,6 @@ class PCHelmetSimulator:
         print(f" จำนวนเฟรมประมวลผล : {self.frame_count} เฟรม")
         print(f" เวลาทำงานทั้งหมด    : {elapsed:.1f} วินาที (FPS: {fps:.1f})")
         print(f" ตรวจพบการละเมิด    : {len(self.violations_log)} ครั้ง")
-        print(f" พิกัด GPS ล่าสุด   : Lat {self.gps_lat:.6f}, Lon {self.gps_lon:.6f}")
         print(f" โฟลเดอร์ภาพหลักฐาน : captures/")
         print("=" * 65)
 
