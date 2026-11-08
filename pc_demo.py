@@ -95,12 +95,25 @@ class PCHelmetSimulator:
         self.yolo_model = None
         try:
             from ultralytics import YOLO
-            model_path = os.path.join(os.path.dirname(__file__), 'yolov8n.pt')
-            if not os.path.exists(model_path):
-                model_path = 'yolov8n.pt'
-            if os.path.exists(model_path):
-                self.yolo_model = YOLO(model_path)
-                print('[INFO] โหลด YOLOv8n สำเร็จ (เปิดใช้งานระบบตรวจจับ Person & Vehicle)')
+            base_dir = os.path.dirname(__file__)
+            candidates = [
+                os.path.join(base_dir, 'best_ncnn_model'),
+                'best_ncnn_model',
+                os.path.join(base_dir, 'best.pt'),
+                'best.pt',
+                os.path.join(base_dir, 'helmet_yolov8n.pt'),
+                'helmet_yolov8n.pt',
+                os.path.join(base_dir, 'yolov8n.pt'),
+                'yolov8n.pt'
+            ]
+            for c in candidates:
+                if os.path.exists(c):
+                    if os.path.isdir(c):
+                        self.yolo_model = YOLO(c, task='detect')
+                    else:
+                        self.yolo_model = YOLO(c)
+                    print(f'[INFO] โหลดโมเดล {os.path.basename(c)} สำเร็จ (High-FPS Ready)')
+                    break
         except Exception as e:
             print(f'[INFO] ใช้ระบบตรวจจับ Cascade / Fallback: {e}')
 
