@@ -224,10 +224,17 @@ class PCHelmetSimulator:
 
         return frame
 
-    def _smooth_box(self, new_box, prev_box, alpha=0.65):
-        """ช่วยลดอาการสั่นของกรอบตรวจจับ (Exponential Moving Average Smoothing)"""
+    def _smooth_box(self, new_box, prev_box, alpha=0.80, deadband=4.0):
+        """ช่วยลดอาการสั่นของกรอบตรวจจับ (Adaptive EMA + Deadband Noise Gate)"""
         if prev_box is None:
             return new_box
+        # Deadband: หากตำแหน่งเปลี่ยนน้อยกว่า 4 พิกเซล ให้ล็อคนิ่งสนิท 100% ขจัดขอบสั่นกระตุก
+        import math
+        center_dist = math.hypot((new_box[0] + new_box[2]/2) - (prev_box[0] + prev_box[2]/2),
+                                 (new_box[1] + new_box[3]/2) - (prev_box[1] + prev_box[3]/2))
+        size_diff = max(abs(new_box[2] - prev_box[2]), abs(new_box[3] - prev_box[3]))
+        if center_dist < deadband and size_diff < deadband:
+            return prev_box
         return [
             int(alpha * n + (1 - alpha) * p)
             for n, p in zip(new_box, prev_box)
